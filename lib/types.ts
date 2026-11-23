@@ -168,10 +168,14 @@ export interface Letter {
   id: string
   createdAt: string
   type: LetterType
+  number: string
   title: string
   recipient: string
   date: string
+  attachments: string
   body: string
+  signerRole: string
+  signerName: string
   isTemplate: boolean
 }
 

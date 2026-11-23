@@ -13,10 +13,14 @@ type Draft = Omit<Letter, 'id' | 'createdAt'> & { id?: string }
 
 const blank = (): Draft => ({
   type: 'letter',
+  number: '',
   title: '',
   recipient: '',
   date: new Date().toISOString().slice(0, 10),
+  attachments: '',
   body: '',
+  signerRole: 'المدير العام',
+  signerName: '',
   isTemplate: false,
 })
 
@@ -66,11 +70,27 @@ export function LettersPanel() {
             <Field label="التاريخ">
               <Input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
             </Field>
+            <Field label="رقم الخطاب">
+              <Input value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} />
+            </Field>
+            <Field label="المرفقات">
+              <Input value={draft.attachments} onChange={(e) => setDraft({ ...draft, attachments: e.target.value })} />
+            </Field>
             <Field label="الموضوع">
               <Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
             </Field>
             <Field label="الجهة المرسل إليها">
               <Input value={draft.recipient} onChange={(e) => setDraft({ ...draft, recipient: e.target.value })} />
+            </Field>
+            <Field label="منصب صاحب الصلاحية">
+              <Input
+                value={draft.signerRole}
+                placeholder="مثال: المدير العام"
+                onChange={(e) => setDraft({ ...draft, signerRole: e.target.value })}
+              />
+            </Field>
+            <Field label="اسم صاحب الصلاحية">
+              <Input value={draft.signerName} onChange={(e) => setDraft({ ...draft, signerName: e.target.value })} />
             </Field>
           </div>
           <Field label="نص المستند">
@@ -146,55 +166,115 @@ export function LettersPanel() {
         </Card>
       </div>
 
-      <section aria-label="معاينة المستند" className="print:col-span-full">
-        <div className="mx-auto flex aspect-[1/1.414] w-full max-w-[640px] flex-col bg-white p-8 text-[13px] text-neutral-900 shadow-lg ring-1 ring-black/5 print:max-w-none print:shadow-none print:ring-0">
-          <header className="flex items-center justify-between gap-4 border-b-4 pb-4" style={{ borderColor: settings?.primaryColor }}>
-            <div className="flex flex-col gap-0.5">
-              <p className="font-heading text-lg font-bold" style={{ color: settings?.primaryColor }}>
-                {settings?.name}
+      <section aria-label="معاينة الخطاب الرسمي" className="print:col-span-full">
+        <div className="letter-a4 mx-auto flex aspect-[1/1.414] w-full max-w-[210mm] flex-col bg-white text-[13px] text-neutral-900 shadow-lg ring-1 ring-black/5 print:aspect-auto print:max-w-none print:w-[210mm] print:min-h-[296mm] print:shadow-none print:ring-0">
+          <div className="flex flex-1 flex-col px-8 pb-6 pt-8 print:px-[18mm] print:pb-[8mm] print:pt-[14mm]">
+            {/* 1) الترويسة العلوية: ثلاثة أعمدة أفقية */}
+            <header className="flex items-start justify-between gap-4">
+              {/* العمود الأيمن */}
+              <div className="flex-1 text-right">
+                <p className="text-[13px]">المملكة العربية السعودية</p>
+                <p className="font-heading text-xl font-bold" style={{ color: settings?.primaryColor }}>
+                  {settings?.name}
+                </p>
+                <p className="text-[12px] text-neutral-600">لتقديم الوجبات والولائم والمناسبات</p>
+              </div>
+
+              {/* العمود الأوسط: الشعار الدائري */}
+              <div className="flex w-24 shrink-0 flex-col items-center">
+                {settings?.logo ? (
+                  <img src={settings.logo} alt={`شعار ${settings?.name ?? ''}`} className="size-20 rounded-full object-cover" />
+                ) : (
+                  <div
+                    className="flex size-20 items-center justify-center rounded-full border-2 p-1 text-center text-[9px] font-bold leading-tight"
+                    style={{ borderColor: settings?.primaryColor, color: settings?.primaryColor }}
+                  >
+                    {settings?.name}
+                  </div>
+                )}
+              </div>
+
+              {/* العمود الأيسر: الرقم والتاريخ والمرفقات */}
+              <div className="flex-1 text-left text-[13px]">
+                <p>
+                  <span className="font-semibold">الرقم: </span>
+                  {draft.number || '—'}
+                </p>
+                <p>
+                  <span className="font-semibold">التاريخ: </span>
+                  {draft.date ? formatDate(draft.date) : '—'}
+                </p>
+                <p>
+                  <span className="font-semibold">المرفقات: </span>
+                  {draft.attachments || 'لا يوجد'}
+                </p>
+              </div>
+            </header>
+
+            {/* خط فاصل عريض يمتد بعرض الورقة كاملة */}
+            <div className="mt-3 -mx-8 h-1 print:-mx-[18mm]" style={{ backgroundColor: settings?.primaryColor }} />
+
+            {/* 2) جسم الخطاب */}
+            <div className="mt-6 flex-1 text-[14px] leading-loose">
+              <p className="text-base font-bold">
+                <span className="text-neutral-500">الموضوع: </span>
+                {draft.title || '...'}
               </p>
-              <p className="text-[11px] text-neutral-600">
-                {settings?.city} - {settings?.district}
+              <p className="mt-4">
+                <span className="font-semibold">سعادة / </span>
+                {draft.recipient ? (
+                  <span className="font-semibold">{draft.recipient}</span>
+                ) : (
+                  <span className="mx-2 inline-block w-1/2 border-b border-dotted border-neutral-500 align-bottom">&nbsp;</span>
+                )}
+                {' الموقر'}
               </p>
-              <p className="text-[11px] text-neutral-600">
-                س.ت: {settings?.crNumber} · الرقم الضريبي: {settings?.vatNumber}
-              </p>
+              <p className="mt-4">السلام عليكم ورحمة الله وبركاته،،،</p>
+              <div className="mt-4 whitespace-pre-wrap text-justify">
+                {draft.body || 'اكتب نص الخطاب في المحرر لتظهر المعاينة هنا...'}
+              </div>
             </div>
-            {settings?.logo && <img src={settings.logo} alt="" className="size-16 rounded-full object-cover" />}
-          </header>
-          <div className="mt-5 flex justify-between text-[12px]">
-            <p>
-              <span className="font-semibold">التاريخ: </span>
-              {draft.date ? formatDate(draft.date) : ''}
-            </p>
-            <p className="font-semibold">{LETTER_TYPES.find((t) => t.id === draft.type)?.label}</p>
+
+            {/* 3) الخاتمة */}
+            <p className="mt-8 text-center font-semibold">وتفضلوا بقبول فائق الاحترام والتقدير،،،</p>
+
+            {/* التوقيع والختم */}
+            <div className="mt-10 flex items-start justify-between gap-8">
+              {/* الختم في الوسط/اليمين */}
+              <div className="flex flex-1 flex-col items-center gap-1">
+                <div
+                  aria-label="الختم الرسمي"
+                  className="flex size-28 rotate-[-12deg] flex-col items-center justify-center rounded-full border-[3px] border-double text-center text-[10px] font-bold leading-tight"
+                  style={{ borderColor: settings?.primaryColor, color: settings?.primaryColor }}
+                >
+                  <span className="px-2">{settings?.name}</span>
+                  <span className="mt-1 text-[9px]">س.ت {settings?.crNumber}</span>
+                </div>
+                <span className="text-[10px] text-neutral-400">الختم الرسمي</span>
+              </div>
+
+              {/* صاحب الصلاحية في الجانب الأيسر */}
+              <div className="flex w-56 flex-col items-center text-center text-[13px]">
+                <p className="font-semibold">{draft.signerRole || 'المدير العام'}</p>
+                <span className="mt-10 text-neutral-500">التوقيع</span>
+                <span className="mt-1 block w-full border-b border-dotted border-neutral-500" />
+                <p className="mt-1 font-semibold">{draft.signerName || '................'}</p>
+              </div>
+            </div>
           </div>
-          {draft.recipient && (
-            <p className="mt-4">
-              <span className="font-semibold">إلى: </span>
-              {draft.recipient}
+
+          {/* 4) ذيل الخطاب */}
+          <footer
+            className="mt-auto w-full px-8 py-3 text-center text-[11px] leading-relaxed text-white print:px-[18mm]"
+            style={{ backgroundColor: settings?.primaryColor }}
+          >
+            <p>
+              {[settings?.city, settings?.district].filter(Boolean).join(' - ')}
+              {' · '}
+              {[settings?.phone, settings?.phone2].filter(Boolean).join(' - ')}
+              {settings?.whatsapp ? ` · واتساب ${settings.whatsapp}` : ''}
             </p>
-          )}
-          {draft.title && (
-            <p className="mt-2">
-              <span className="font-semibold">الموضوع: </span>
-              {draft.title}
-            </p>
-          )}
-          <div className="mt-5 flex-1 whitespace-pre-wrap leading-loose">{draft.body || 'ابدأ الكتابة في المحرر لتظهر المعاينة هنا...'}</div>
-          <footer className="mt-6 flex items-end justify-between">
-            <div className="text-[11px] text-neutral-600">
-              <p>{settings?.phone}</p>
-              <p dir="ltr">{settings?.email}</p>
-            </div>
-            <div
-              aria-label="ختم المشروع"
-              className="flex size-28 rotate-[-12deg] flex-col items-center justify-center rounded-full border-[3px] border-double text-center text-[10px] font-bold leading-tight"
-              style={{ borderColor: settings?.primaryColor, color: settings?.primaryColor }}
-            >
-              <span className="px-2">{settings?.name}</span>
-              <span className="mt-1 text-[9px]">س.ت {settings?.crNumber}</span>
-            </div>
+            {settings?.email && <p className="mt-0.5">{settings.email}</p>}
           </footer>
         </div>
       </section>

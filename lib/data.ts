@@ -154,10 +154,14 @@ function toLetter(r: Row): Letter {
     id: r.id,
     createdAt: r.created_at,
     type: r.type,
+    number: r.doc_number ?? '',
     title: r.title ?? '',
     recipient: r.recipient ?? '',
     date: r.doc_date ?? '',
+    attachments: r.attachments ?? '',
     body: r.body ?? '',
+    signerRole: r.signer_role ?? '',
+    signerName: r.signer_name ?? '',
     isTemplate: r.is_template ?? false,
   }
 }
@@ -165,10 +169,14 @@ function toLetter(r: Row): Letter {
 function letterToRow(l: Partial<Letter>): Row {
   const r: Row = {}
   if (l.type !== undefined) r.type = l.type
+  if (l.number !== undefined) r.doc_number = l.number || null
   if (l.title !== undefined) r.title = l.title
   if (l.recipient !== undefined) r.recipient = l.recipient
   if (l.date !== undefined) r.doc_date = l.date || null
+  if (l.attachments !== undefined) r.attachments = l.attachments
   if (l.body !== undefined) r.body = l.body
+  if (l.signerRole !== undefined) r.signer_role = l.signerRole
+  if (l.signerName !== undefined) r.signer_name = l.signerName
   if (l.isTemplate !== undefined) r.is_template = l.isTemplate
   return r
 }

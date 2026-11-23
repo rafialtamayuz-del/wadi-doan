@@ -96,14 +96,19 @@ create table if not exists public.purchases (
 );
 
 -- 5) المستندات الرسمية (خطابات / عروض أسعار / مطالبات مالية)
+-- doc_number: رقم الخطاب، attachments: المرفقات، signer_role: منصب صاحب الصلاحية، signer_name: الاسم.
 create table if not exists public.official_documents (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
   type        text not null,
+  doc_number  text default '',
   title       text default '',
   recipient   text default '',
   doc_date    date,
+  attachments text default '',
   body        text default '',
+  signer_role text default '',
+  signer_name text default '',
   is_template boolean not null default false
 );
 
@@ -150,6 +155,12 @@ alter table public.menu_items
 -- عمود كود الاستلام الأمني (5 أرقام) مع منع تكراره
 alter table public.orders add column if not exists pickup_code text;
 create unique index if not exists orders_pickup_code_key on public.orders (pickup_code) where pickup_code is not null;
+
+-- أعمدة الخطابات الرسمية الجديدة (رقم الخطاب، المرفقات، منصب واسم صاحب الصلاحية) — آمنة للتكرار.
+alter table public.official_documents add column if not exists doc_number  text default '';
+alter table public.official_documents add column if not exists attachments text default '';
+alter table public.official_documents add column if not exists signer_role text default '';
+alter table public.official_documents add column if not exists signer_name text default '';
 
 -- =============== دوال العملاء العامة (SECURITY DEFINER) ===============
 

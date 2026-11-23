@@ -41,7 +41,7 @@ export function AdminApp() {
   const Panel = section.Panel
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row">
+    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 print:p-0 lg:flex-row">
       <nav aria-label="أقسام لوحة التحكم" className="shrink-0 print:hidden lg:w-60">
         <h1 className="mb-4 font-heading text-2xl font-bold">لوحة التحكم</h1>
         <ul className="flex gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible">
