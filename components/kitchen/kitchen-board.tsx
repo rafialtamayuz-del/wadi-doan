@@ -87,7 +87,7 @@ export function KitchenBoard() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [active])
 
-  async function update(id: string, patch: Partial<{ status: OrderStatus; priority: Order['priority']; pickupCode: string }>) {
+  async function update(id: string, patch: Partial<{ status: OrderStatus; priority: Order['priority'] }>) {
     await mutate(
       async (current) => {
         const updated = await apiSend<Order>(`/api/orders/${id}`, 'PATCH', patch)
@@ -114,7 +114,7 @@ export function KitchenBoard() {
           <Select aria-label="تصفية الطلبات" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} className="w-48">
             <option value="all">كل الطلبات</option>
             <option value="restaurant">طلبات المطعم الفورية</option>
-            <option value="booking">الذبائح والولائم والإعاشة</option>
+            <option value="booking">الذبائح والأضاحي والولائم والإعاشة</option>
           </Select>
           <Button variant={soundOn ? 'default' : 'outline'} size="lg" onClick={toggleSound} aria-pressed={soundOn}>
             {soundOn ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}

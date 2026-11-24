@@ -16,7 +16,7 @@ import { ComplaintForm } from './complaint-form'
 import { TableQr } from './table-qr'
 
 const TABS = [
-  { id: 'booking', label: 'حجز ذبائح وولائم' },
+  { id: 'booking', label: 'حجز الأضاحي والذبائح والولائم' },
   { id: 'menu', label: 'منيو المطعم والطلب' },
   { id: 'track', label: 'تتبع الطلب' },
   { id: 'complaint', label: 'الشكاوى والملاحظات' },
@@ -123,7 +123,7 @@ export function RestaurantApp() {
 
       {showCart && (
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-          <section aria-label={tab === 'booking' ? 'حجز الذبائح والولائم' : 'المنيو'} className="flex flex-col gap-5">
+          <section aria-label={tab === 'booking' ? 'حجز الأضاحي والذبائح والولائم' : 'المنيو'} className="flex flex-col gap-5">
             {tab === 'booking' ? (
               <BookingPanel menu={menu ?? []} onAdd={addBooking} />
             ) : (

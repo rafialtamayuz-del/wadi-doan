@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Clock, Flame, Printer, ShieldCheck } from 'lucide-react'
+import { Clock, Flame, MapPin, Printer, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge, Input } from '@/components/ui/fields'
+import { Badge } from '@/components/ui/fields'
 import { formatDateTime } from '@/lib/format'
-import { ORDER_TYPES, type Order, type OrderStatus } from '@/lib/types'
+import { CATEGORIES, ORDER_TYPES, SLAUGHTER_CATEGORIES, type Order, type OrderStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
@@ -19,16 +19,13 @@ export function OrderTicket({
   onUpdate,
 }: {
   order: Order
-  onUpdate: (patch: Partial<{ status: OrderStatus; priority: Order['priority']; pickupCode: string }>) => Promise<void>
+  onUpdate: (patch: Partial<{ status: OrderStatus; priority: Order['priority'] }>) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
-  const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const next = NEXT[order.status]
   const minutes = Math.max(0, Math.round((Date.now() - new Date(order.createdAt).getTime()) / 60000))
   const urgent = order.priority === 'urgent'
-  // الطلبات المدفوعة إلكترونيًا لا تُسلَّم إلا بإدخال كود الاستلام المطابق.
-  const gateDelivery = next?.status === 'completed' && Boolean(order.requiresPickupCode)
 
   async function run(patch: Parameters<typeof onUpdate>[0]) {
     setBusy(true)
@@ -61,27 +58,57 @@ export function OrderTicket({
             </Badge>
           )}
           {order.isBooking && <Badge tone="accent">حجز</Badge>}
-          {order.requiresPickupCode && (
-            <Badge tone="primary">
-              <ShieldCheck className="size-3" aria-hidden="true" />
-              كود استلام
-            </Badge>
-          )}
           <span className="text-xs text-muted-foreground">منذ {minutes} د</span>
         </div>
       </header>
+      {order.pickupCode && (
+        <p className="flex items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 px-2 py-1.5">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+            <ShieldCheck className="size-3.5" aria-hidden="true" />
+            كود الاستلام
+          </span>
+          <span dir="ltr" className="font-mono text-lg font-bold tracking-[0.3em] text-primary">
+            {order.pickupCode}
+          </span>
+        </p>
+      )}
       {order.scheduledAt && (
         <p className="flex items-center gap-1.5 rounded-md bg-accent/20 px-2 py-1 text-xs font-semibold">
           <Clock className="size-3.5" aria-hidden="true" />
           التسليم: {formatDateTime(order.scheduledAt)}
         </p>
       )}
+      {order.type === 'delivery' && (order.shortAddress || order.lat !== undefined) && (
+        <p className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
+          <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+          {order.shortAddress && (
+            <span dir="ltr" className="font-mono font-semibold">
+              {order.shortAddress}
+            </span>
+          )}
+          {order.lat !== undefined && order.lng !== undefined && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${order.lat},${order.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-primary underline"
+            >
+              عرض الموقع على الخريطة
+            </a>
+          )}
+        </p>
+      )}
       <ul className="flex flex-col gap-1 text-sm">
         {order.lines.map((l) => (
           <li key={`${l.itemId}-${l.options ?? ''}`} className="flex justify-between gap-2">
-            <span>
-              {l.name}
-              {l.options && <span className="block text-xs text-muted-foreground">{l.options}</span>}
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5">
+                {SLAUGHTER_CATEGORIES.includes(l.category) && (
+                  <Badge tone="accent">{CATEGORIES.find((c) => c.id === l.category)?.label}</Badge>
+                )}
+                {l.name}
+              </span>
+              {l.options && <span className="block text-xs font-semibold text-primary">{l.options}</span>}
             </span>
             <span className="font-bold">× {l.qty}</span>
           </li>
@@ -89,31 +116,9 @@ export function OrderTicket({
       </ul>
       {order.guests && <p className="text-xs text-muted-foreground">عدد الأشخاص: {order.guests}</p>}
       {order.notes && <p className="rounded-md bg-muted px-2 py-1 text-xs font-medium">ملاحظة: {order.notes}</p>}
-      {gateDelivery && (
-        <div className="flex flex-col gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2">
-          <label htmlFor={`pickup-${order.id}`} className="flex items-center gap-1.5 text-xs font-semibold text-primary">
-            <ShieldCheck className="size-3.5" aria-hidden="true" />
-            أدخل كود الاستلام للتسليم (5 أرقام)
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id={`pickup-${order.id}`}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 5))}
-              inputMode="numeric"
-              dir="ltr"
-              placeholder="- - - - -"
-              className="h-9 flex-1 text-center font-mono tracking-widest"
-            />
-            <Button disabled={busy || code.length !== 5} onClick={() => run({ status: 'completed', pickupCode: code })}>
-              تم التسليم
-            </Button>
-          </div>
-          {error && <p className="text-xs font-medium text-destructive">{error}</p>}
-        </div>
-      )}
+      {error && <p className="text-xs font-medium text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        {next && !gateDelivery && (
+        {next && (
           <Button className="flex-1" disabled={busy} onClick={() => run({ status: next.status })}>
             {next.label}
           </Button>

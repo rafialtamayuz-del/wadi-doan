@@ -5,12 +5,22 @@ import { CalendarClock, Check, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, Field, Input, Select } from '@/components/ui/fields'
 import { effectivePrice, sar } from '@/lib/format'
-import { BOOKING_CATEGORIES, CATEGORIES, COOKING_STYLES, CUT_STYLES, KITCHEN_SECTIONS, type MenuItem } from '@/lib/types'
+import {
+  BOOKING_CATEGORIES,
+  CATEGORIES,
+  COOKING_STYLES,
+  CUTTING_STYLES,
+  CUT_STYLES,
+  KITCHEN_SECTIONS,
+  SLAUGHTER_CATEGORIES,
+  type MenuItem,
+} from '@/lib/types'
 
 /**
- * قسم مخصص لحجز الذبائح والولائم والإعاشة.
+ * قسم مخصص لحجز الذبائح والأضاحي والولائم والإعاشة.
  * يعرض الأصناف المخصصة للمطبخ (أو المشتركة بين المطعم والمطبخ)، ويختار العميل نوع الذبيحة/الوليمة
- * وطريقة الطبخ ونوع التقطيع والكمية، ثم يضيفها إلى السلة الموحدة، ليحدد تاريخ ووقت التسليم عند إتمام الطلب.
+ * وطريقة الطبخ ونوع التقطيع وطريقة التفصيل والكمية، ثم يضيفها إلى السلة الموحدة،
+ * ليحدد تاريخ ووقت التسليم عند إتمام الطلب.
  */
 export function BookingPanel({
   menu,
@@ -26,15 +36,18 @@ export function BookingPanel({
   const [itemId, setItemId] = useState('')
   const [cooking, setCooking] = useState<string>(COOKING_STYLES[0])
   const [cut, setCut] = useState<string>(CUT_STYLES[0])
+  const [cutting, setCutting] = useState<string>(CUTTING_STYLES[0])
   const [qty, setQty] = useState(1)
   const [added, setAdded] = useState(false)
 
   const selected = items.find((m) => m.id === itemId)
   const price = selected ? effectivePrice(selected) : 0
+  const needsCutting = selected ? SLAUGHTER_CATEGORIES.includes(selected.category) : false
+  const details = needsCutting ? `${cooking} · ${cut} · تفصيل: ${cutting}` : `${cooking} · ${cut}`
 
   function add() {
     if (!selected) return
-    onAdd(selected.id, `${cooking} · ${cut}`, Math.max(1, qty))
+    onAdd(selected.id, details, Math.max(1, qty))
     setAdded(true)
     setQty(1)
     window.setTimeout(() => setAdded(false), 2000)
@@ -48,8 +61,8 @@ export function BookingPanel({
           <h2 className="font-heading text-lg font-bold">حجز ذبيحتك أو وليمتك</h2>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          اختر نوع الذبيحة أو الوليمة وطريقة الطبخ ونوع التقطيع والكمية، ثم أضفها إلى السلة. سيُطلب منك تحديد تاريخ ووقت
-          التسليم عند إتمام الطلب.
+          اختر نوع الذبيحة أو الأضحية أو الوليمة وطريقة الطبخ ونوع التقطيع وطريقة التفصيل والكمية، ثم أضفها إلى السلة.
+          سيُطلب منك تحديد تاريخ ووقت التسليم عند إتمام الطلب.
         </p>
 
         <Field label="نوع الذبيحة أو الوليمة">
@@ -92,6 +105,18 @@ export function BookingPanel({
           </Field>
         </div>
 
+        {needsCutting && (
+          <Field label="طريقة التفصيل" hint="حضرمي / ثلاجة / أرباع / كامل / تفصيل مخصص">
+            <Select value={cutting} onChange={(e) => setCutting(e.target.value)}>
+              {CUTTING_STYLES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
         <Field label="الكمية">
           <Input
             type="number"
@@ -107,7 +132,7 @@ export function BookingPanel({
         {selected && (
           <div className="flex items-center justify-between rounded-xl bg-muted px-4 py-3 text-sm">
             <span className="font-medium">
-              {selected.name} · {cooking} · {cut}
+              {selected.name} · {details}
             </span>
             <span className="font-bold text-primary">{sar(price * Math.max(1, qty))}</span>
           </div>

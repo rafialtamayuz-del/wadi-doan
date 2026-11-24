@@ -1,7 +1,9 @@
 import { supabaseServer } from './supabase/server'
 import {
   type CollectionName,
+  type CompanyInvoice,
   type Complaint,
+  type FinancialReport,
   type Letter,
   type MenuItem,
   type Order,
@@ -20,6 +22,8 @@ const TABLES = {
   complaints: 'complaints',
   purchases: 'purchases',
   letters: 'official_documents',
+  reports: 'financial_reports',
+  invoices: 'company_invoices',
 } as const
 
 type TableCollection = keyof typeof TABLES
@@ -52,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
     { id: 'branch', name: 'الفرع الرئيسي', address: 'جدة، حي النسيم، شارع الأمير سلطان', lat: 21.5422, lng: 39.173 },
     { id: 'kitchen', name: 'المطبخ المركزي', address: 'جدة، المدينة الصناعية، طريق المدينة', lat: 21.581, lng: 39.166 },
   ],
-  gateways: { mada: true, applepay: true, visa: true, tabby: true, tamara: true, pos: true, bank: true },
+  gateways: { mada: true, applepay: true, visa: true, tabby: true, tamara: true, pos: true, cash: true, bank: true },
   zones: [
     { id: 'zone-1', name: 'حي النسيم', fee: 10, active: true, createdAt: '' },
     { id: 'zone-2', name: 'حي الروضة', fee: 15, active: true, createdAt: '' },
@@ -157,11 +161,13 @@ function toLetter(r: Row): Letter {
     number: r.doc_number ?? '',
     title: r.title ?? '',
     recipient: r.recipient ?? '',
+    recipientTitle: r.recipient_title ?? 'الموقر',
     date: r.doc_date ?? '',
     attachments: r.attachments ?? '',
     body: r.body ?? '',
     signerRole: r.signer_role ?? '',
     signerName: r.signer_name ?? '',
+    signature: r.signature ?? '',
     isTemplate: r.is_template ?? false,
   }
 }
@@ -172,12 +178,74 @@ function letterToRow(l: Partial<Letter>): Row {
   if (l.number !== undefined) r.doc_number = l.number || null
   if (l.title !== undefined) r.title = l.title
   if (l.recipient !== undefined) r.recipient = l.recipient
+  if (l.recipientTitle !== undefined) r.recipient_title = l.recipientTitle
   if (l.date !== undefined) r.doc_date = l.date || null
   if (l.attachments !== undefined) r.attachments = l.attachments
   if (l.body !== undefined) r.body = l.body
   if (l.signerRole !== undefined) r.signer_role = l.signerRole
   if (l.signerName !== undefined) r.signer_name = l.signerName
+  if (l.signature !== undefined) r.signature = l.signature
   if (l.isTemplate !== undefined) r.is_template = l.isTemplate
+  return r
+}
+
+function toReport(r: Row): FinancialReport {
+  return {
+    id: r.id,
+    createdAt: r.created_at,
+    period: r.period === 'annual' ? 'annual' : 'monthly',
+    year: Number(r.year ?? 0),
+    month: r.month != null ? Number(r.month) : undefined,
+    label: r.label ?? '',
+    revenue: Number(r.revenue ?? 0),
+    purchases: Number(r.purchases ?? 0),
+    expenses: Number(r.expenses ?? 0),
+    netProfit: Number(r.net_profit ?? 0),
+    ordersCount: Number(r.orders_count ?? 0),
+    notes: r.notes ?? undefined,
+  }
+}
+
+function reportToRow(x: Partial<FinancialReport>): Row {
+  const r: Row = {}
+  if (x.period !== undefined) r.period = x.period
+  if (x.year !== undefined) r.year = x.year
+  if (x.month !== undefined) r.month = x.month ?? null
+  if (x.label !== undefined) r.label = x.label
+  if (x.revenue !== undefined) r.revenue = x.revenue
+  if (x.purchases !== undefined) r.purchases = x.purchases
+  if (x.expenses !== undefined) r.expenses = x.expenses
+  if (x.netProfit !== undefined) r.net_profit = x.netProfit
+  if (x.ordersCount !== undefined) r.orders_count = x.ordersCount
+  if (x.notes !== undefined) r.notes = x.notes || null
+  return r
+}
+
+function toInvoice(r: Row): CompanyInvoice {
+  return {
+    id: r.id,
+    createdAt: r.created_at,
+    number: r.number ?? '',
+    date: r.invoice_date ?? '',
+    buyerName: r.buyer_name ?? '',
+    buyerAddress: r.buyer_address ?? '',
+    buyerCr: r.buyer_cr ?? '',
+    buyerVat: r.buyer_vat ?? undefined,
+    lines: Array.isArray(r.lines) ? r.lines : [],
+    notes: r.notes ?? undefined,
+  }
+}
+
+function invoiceToRow(x: Partial<CompanyInvoice>): Row {
+  const r: Row = {}
+  if (x.number !== undefined) r.number = x.number
+  if (x.date !== undefined) r.invoice_date = x.date || null
+  if (x.buyerName !== undefined) r.buyer_name = x.buyerName
+  if (x.buyerAddress !== undefined) r.buyer_address = x.buyerAddress
+  if (x.buyerCr !== undefined) r.buyer_cr = x.buyerCr
+  if (x.buyerVat !== undefined) r.buyer_vat = x.buyerVat || null
+  if (x.lines !== undefined) r.lines = x.lines
+  if (x.notes !== undefined) r.notes = x.notes || null
   return r
 }
 
@@ -191,6 +259,9 @@ function toOrder(r: Row): Order {
     zoneId: r.zone_id ?? undefined,
     zoneName: r.zone_name ?? undefined,
     address: r.address ?? undefined,
+    shortAddress: r.short_address ?? undefined,
+    lat: r.lat != null ? Number(r.lat) : undefined,
+    lng: r.lng != null ? Number(r.lng) : undefined,
     pickupFrom: r.pickup_from ?? undefined,
     customerName: r.customer_name,
     phone: r.phone,
@@ -213,12 +284,6 @@ function toOrder(r: Row): Order {
 
 export type NewOrder = Omit<Order, 'id' | 'number' | 'createdAt'>
 
-/** يخفي كود الاستلام عن واجهات الموظفين (التحقق يتم في الخادم) ويكتفي بإعلامهم بوجوده. */
-export function hidePickupCode(order: Order): Order {
-  const { pickupCode, ...rest } = order
-  return { ...rest, requiresPickupCode: Boolean(pickupCode) }
-}
-
 function orderToRow(o: NewOrder): Row {
   return {
     type: o.type,
@@ -226,6 +291,9 @@ function orderToRow(o: NewOrder): Row {
     zone_id: o.zoneId ?? null,
     zone_name: o.zoneName ?? null,
     address: o.address ?? null,
+    short_address: o.shortAddress ?? null,
+    lat: o.lat ?? null,
+    lng: o.lng ?? null,
     pickup_from: o.pickupFrom ?? null,
     customer_name: o.customerName,
     phone: o.phone,
@@ -288,14 +356,22 @@ function rowToSettings(r: Row): Settings {
     crNumber: r.cr_number ?? d.crNumber,
     hours: Array.isArray(r.hours) ? r.hours : d.hours,
     locations: Array.isArray(r.locations) ? r.locations : d.locations,
-    gateways: r.gateways ?? d.gateways,
+    // دمج البوابات مع الافتراضية لتفعيل أي طريقة دفع جديدة (مثل الدفع كاش) افتراضيًا.
+    gateways: { ...d.gateways, ...(r.gateways ?? {}) },
     zones: Array.isArray(r.zones) ? r.zones : d.zones,
     accounts: Array.isArray(r.accounts) ? r.accounts : d.accounts,
   }
 }
 
 function mapperFor(name: TableCollection) {
-  return { menu: toMenuItem, complaints: toComplaint, purchases: toPurchase, letters: toLetter }[name]
+  return {
+    menu: toMenuItem,
+    complaints: toComplaint,
+    purchases: toPurchase,
+    letters: toLetter,
+    reports: toReport,
+    invoices: toInvoice,
+  }[name]
 }
 
 function toRowFor(name: TableCollection, body: Row): Row {
@@ -308,6 +384,10 @@ function toRowFor(name: TableCollection, body: Row): Row {
       return purchaseToRow(body as Partial<Purchase>)
     case 'letters':
       return letterToRow(body as Partial<Letter>)
+    case 'reports':
+      return reportToRow(body as Partial<FinancialReport>)
+    case 'invoices':
+      return invoiceToRow(body as Partial<CompanyInvoice>)
   }
 }
 
@@ -389,13 +469,32 @@ export async function createRecord(name: CollectionName, body: Row): Promise<unk
     return toComplaint(data)
   }
   const supabase = await supabaseServer()
-  const { data, error } = await supabase
-    .from(TABLES[name])
-    .insert(toRowFor(name, body))
-    .select('*')
-    .single()
+  const row = toRowFor(name, body)
+  // الخطابات: يُولَّد رقم الخطاب إلكترونيًا وبشكل تسلسلي سنوي عند غيابه.
+  if (name === 'letters' && !row.doc_number) {
+    const { data: generated, error: numberError } = await supabase.rpc('next_document_number', {
+      p_year: yearFromDate(body.date),
+    })
+    if (numberError) throw new Error(numberError.message)
+    row.doc_number = generated
+  }
+  const { data, error } = await supabase.from(TABLES[name]).insert(row).select('*').single()
   if (error) throw new Error(error.message)
   return mapperFor(name)(data)
+}
+
+/** يعيد رقم الخطاب التالي المتوقع دون حجزه (لمعاينته قبل الحفظ). */
+export async function peekNextLetterNumber(date?: string): Promise<string> {
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.rpc('peek_document_number', { p_year: yearFromDate(date) })
+  if (error) throw new Error(error.message)
+  return data as string
+}
+
+/** يستخرج السنة من تاريخ بصيغة YYYY-MM-DD، أو null لاستخدام السنة الحالية. */
+function yearFromDate(value: unknown): number | null {
+  const text = String(value ?? '')
+  return /^\d{4}/.test(text) ? Number(text.slice(0, 4)) : null
 }
 
 export async function updateRecord(name: CollectionName, id: string, patch: Row): Promise<unknown> {

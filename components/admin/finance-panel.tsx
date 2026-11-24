@@ -1,16 +1,52 @@
 'use client'
 
 import { useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Building2, Landmark, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, Field, Input, Notice, Select } from '@/components/ui/fields'
 import { apiSend, useCollection, useSettings } from '@/lib/client'
 import { PAYMENT_METHODS, type BankAccount, type PaymentMethod, type Settings } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { FinanceReports } from './finance-reports'
+import { CompanyInvoices } from './company-invoices'
 
 type Draft = Omit<BankAccount, 'id' | 'createdAt'> & { id?: string }
 const EMPTY: Draft = { bank: '', holder: '', iban: '', accountNo: '', owner: 'restaurant', active: true }
 
+const TABS = [
+  { id: 'accounts', label: 'بوابات الدفع والحسابات', icon: Landmark },
+  { id: 'reports', label: 'القوائم المالية', icon: ScrollText },
+  { id: 'invoices', label: 'فواتير الشركات', icon: Building2 },
+] as const
+
+/** قسم الإدارة المالية: بوابات الدفع والحسابات البنكية والقوائم المالية وفواتير الشركات. */
 export function FinancePanel() {
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('accounts')
+  return (
+    <div className="flex flex-col gap-5">
+      <div role="tablist" aria-label="أقسام الإدارة المالية" className="flex flex-wrap gap-1 rounded-xl bg-muted p-1 print:hidden">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            type="button"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition', tab === id ? 'bg-card shadow-sm' : 'hover:bg-background/60')}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'accounts' && <AccountsPanel />}
+      {tab === 'reports' && <FinanceReports />}
+      {tab === 'invoices' && <CompanyInvoices />}
+    </div>
+  )
+}
+
+function AccountsPanel() {
   const { data: settings, mutate: mutateSettings } = useSettings()
   const { data: accounts, mutate } = useCollection<BankAccount>('accounts')
   const [draft, setDraft] = useState<Draft | null>(null)

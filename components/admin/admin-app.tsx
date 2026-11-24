@@ -10,6 +10,7 @@ import {
   MessageSquareWarning,
   Palette,
   Receipt,
+  ShieldCheck,
   UtensilsCrossed,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -20,6 +21,7 @@ import { ZonesPanel } from './zones-panel'
 import { PurchasesPanel } from './purchases-panel'
 import { LettersPanel } from './letters-panel'
 import { FinancePanel } from './finance-panel'
+import { StaffPanel } from './staff-panel'
 import { OrdersPanel } from './orders-panel'
 import { ComplaintsPanel } from './complaints-panel'
 
@@ -32,6 +34,7 @@ const SECTIONS = [
   { id: 'purchases', label: 'المشتريات', icon: Receipt, Panel: PurchasesPanel },
   { id: 'letters', label: 'الخطابات والمطبوعات', icon: FileText, Panel: LettersPanel },
   { id: 'finance', label: 'الإدارة المالية', icon: Landmark, Panel: FinancePanel },
+  { id: 'staff', label: 'الموظفون والصلاحيات', icon: ShieldCheck, Panel: StaffPanel },
   { id: 'branding', label: 'الهوية البصرية', icon: Palette, Panel: BrandingPanel },
 ] as const
 

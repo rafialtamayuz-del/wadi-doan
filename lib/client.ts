@@ -1,12 +1,36 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import type { User } from '@supabase/supabase-js'
 import useSWR from 'swr'
+import { supabaseBrowser } from './supabase/browser'
 import type { CollectionName, Order, Settings } from './types'
 
 export async function fetcher<T>(url: string): Promise<T> {
   const res = await fetch(url, { cache: 'no-store' })
-  if (!res.ok) throw new Error('تعذّر تحميل البيانات')
-  return res.json()
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw new Error((data as { error?: string } | null)?.error || 'تعذّر تحميل البيانات')
+  return data as T
+}
+
+/** يعيد مستخدم Supabase الحالي (لقراءة الدور والصلاحيات في الواجهة). */
+export function useCurrentUser() {
+  const [user, setUser] = useState<User | null>(null)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      setReady(true)
+      return
+    }
+    const supabase = supabaseBrowser()
+    void supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user ?? null)
+      setReady(true)
+    })
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null))
+    return () => data.subscription.unsubscribe()
+  }, [])
+  return { user, ready }
 }
 
 export function useSettings() {

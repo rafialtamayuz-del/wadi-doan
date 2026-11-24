@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Printer, ReceiptText, Wallet } from 'lucide-react'
+import { Printer, ReceiptText, ShieldCheck, Wallet } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge, Card, Input, Select } from '@/components/ui/fields'
 import { apiSend, useOrders } from '@/lib/client'
@@ -30,8 +30,10 @@ export function CashierPanel() {
     [orders, q, showAll],
   )
 
-  async function confirmPaid(id: string) {
-    await apiSend<Order>(`/api/orders/${id}`, 'PATCH', { paymentStatus: 'paid' })
+  async function confirmPaid(order: Order) {
+    // الطلب المحلي (داخل المطعم) بعد تسديد الفاتورة يصبح «تم السداد» ويُرحّل للأرشيف تلقائيًا.
+    const patch = order.type === 'dinein' ? { paymentStatus: 'paid' as const, status: 'settled' as const } : { paymentStatus: 'paid' as const }
+    await apiSend<Order>(`/api/orders/${order.id}`, 'PATCH', patch)
     await mutate()
   }
 
@@ -62,6 +64,7 @@ export function CashierPanel() {
               <th className="p-3 font-semibold">#</th>
               <th className="p-3 font-semibold">العميل</th>
               <th className="p-3 font-semibold">النوع</th>
+              <th className="p-3 font-semibold">كود الاستلام</th>
               <th className="p-3 font-semibold">التاريخ</th>
               <th className="p-3 font-semibold">الإجمالي</th>
               <th className="p-3 font-semibold">الدفع</th>
@@ -73,15 +76,27 @@ export function CashierPanel() {
               <tr key={o.id} className="border-b align-top last:border-0">
                 <td className="p-3 font-bold text-primary">{o.number}</td>
                 <td className="p-3">
-                  <p className="font-medium">{o.customerName}</p>
-                  <p dir="ltr" className="text-right text-xs text-muted-foreground">
-                    {o.phone}
-                  </p>
+                  <p className="font-medium">{o.customerName || 'عميل محلي'}</p>
+                  {o.phone && (
+                    <p dir="ltr" className="text-right text-xs text-muted-foreground">
+                      {o.phone}
+                    </p>
+                  )}
                 </td>
                 <td className="p-3 text-xs">
                   {ORDER_TYPES.find((t) => t.id === o.type)?.label}
                   {o.table ? ` · طاولة ${o.table}` : ''}
                   {o.isBooking && <Badge tone="accent" className="mr-1">حجز</Badge>}
+                </td>
+                <td className="p-3">
+                  {o.pickupCode ? (
+                    <Badge tone="primary" className="font-mono text-sm tracking-widest">
+                      <ShieldCheck className="size-3" aria-hidden="true" />
+                      <span dir="ltr">{o.pickupCode}</span>
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </td>
                 <td className="p-3 text-xs">{formatDateTime(o.createdAt)}</td>
                 <td className="p-3 font-semibold">{sar(o.total)}</td>
@@ -99,7 +114,7 @@ export function CashierPanel() {
                 <td className="p-3">
                   <div className="flex flex-wrap gap-1.5">
                     {o.payment.status !== 'paid' && (
-                      <Button size="sm" className="gap-1" onClick={() => confirmPaid(o.id)}>
+                      <Button size="sm" className="gap-1" onClick={() => confirmPaid(o)}>
                         <Wallet aria-hidden="true" />
                         تأكيد الدفع
                       </Button>

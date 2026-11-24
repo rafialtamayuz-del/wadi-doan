@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { ClipboardList, Printer, Wallet } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useCurrentUser } from '@/lib/client'
+import { permissionsFromUser } from '@/lib/permissions'
 import { OrdersPanel } from '@/components/admin/orders-panel'
 import { CashierPanel } from './cashier-panel'
 import { PrintPanel } from './print-panel'
@@ -10,13 +12,17 @@ import { PrintPanel } from './print-panel'
 const TABS = [
   { id: 'orders', label: 'إدارة الطلبات', desc: 'متابعة كل الطلبات وتعديل حالتها', icon: ClipboardList, Panel: OrdersPanel },
   { id: 'cashier', label: 'الكاشير والدفع', desc: 'تحصيل وتأكيد المدفوعات', icon: Wallet, Panel: CashierPanel },
-  { id: 'print', label: 'طباعة الفواتير والبونات', desc: 'إصدار الفاتورة الضريبية وبون المطبخ', icon: Printer, Panel: PrintPanel },
+  { id: 'print', label: 'طباعة الفواتير والبونات', desc: 'إصدار الفاتورة الضريبية وبون المطبخ', icon: Printer, Panel: PrintPanel, permission: 'print_invoice' },
 ] as const
 
-/** شاشة موظفي المطعم: إدارة الطلبات والكاشير وطباعة الفواتير. */
+/** شاشة موظفي المطعم: إدارة الطلبات والكاشير وطباعة الفواتير (حسب صلاحيات الموظف). */
 export function StaffApp() {
+  const { user } = useCurrentUser()
+  const permissions = permissionsFromUser(user)
+  // تُخفى التبويبات التي تتطلب صلاحية غير مُفعّلة لموظف المطعم.
+  const tabs = TABS.filter((t) => !('permission' in t) || permissions.includes(t.permission))
   const [active, setActive] = useState<(typeof TABS)[number]['id']>('orders')
-  const tab = TABS.find((t) => t.id === active)!
+  const tab = tabs.find((t) => t.id === active) ?? tabs[0]
   const Panel = tab.Panel
 
   return (
@@ -24,7 +30,7 @@ export function StaffApp() {
       <nav aria-label="أقسام شاشة موظفي المطعم" className="shrink-0 print:hidden lg:w-64">
         <h1 className="mb-4 font-heading text-2xl font-bold">شاشة موظفي المطعم</h1>
         <ul className="flex gap-1 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {tabs.map(({ id, label, icon: Icon }) => (
             <li key={id} className="shrink-0">
               <button
                 type="button"

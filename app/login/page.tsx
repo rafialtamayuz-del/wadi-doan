@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, Field, Input } from '@/components/ui/fields'
+import { loginIdToEmail } from '@/lib/roles'
 import { supabaseBrowser } from '@/lib/supabase/browser'
 
 function LoginForm() {
   const router = useRouter()
   const params = useSearchParams()
   const next = params.get('next') ?? '/admin'
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -20,13 +21,14 @@ function LoginForm() {
     event.preventDefault()
     setBusy(true)
     setError('')
+    // يقبل اسم المستخدم (رقم الجوال أو رقم الهوية) أو البريد الإلكتروني.
     const { error: signInError } = await supabaseBrowser().auth.signInWithPassword({
-      email: email.trim(),
+      email: loginIdToEmail(identifier.trim()),
       password,
     })
     if (signInError) {
       setBusy(false)
-      setError('بيانات الدخول غير صحيحة، تأكد من البريد الإلكتروني وكلمة المرور.')
+      setError('بيانات الدخول غير صحيحة، تأكد من اسم المستخدم وكلمة المرور.')
       return
     }
     router.replace(next.startsWith('/') ? next : '/admin')
@@ -40,14 +42,13 @@ function LoginForm() {
         هذه الشاشة مخصصة لموظفي المطعم والمطبخ وصاحب المشروع. الشاشة الرئيسية والمطعم متاحان للعملاء بدون تسجيل دخول.
       </p>
       <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
-        <Field label="البريد الإلكتروني">
+        <Field label="اسم المستخدم أو البريد الإلكتروني" hint="رقم الجوال أو رقم الهوية الوطنية">
           <Input
-            type="email"
             dir="ltr"
             autoComplete="username"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
           />
         </Field>
         <Field label="كلمة المرور">

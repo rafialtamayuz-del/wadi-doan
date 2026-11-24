@@ -1,26 +1,33 @@
 'use client'
 
-import { useState } from 'react'
-import { FilePlus2, Printer, Save, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { FilePlus2, PenLine, Printer, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, Field, Input, Notice, Select, Textarea } from '@/components/ui/fields'
+import { Barcode } from '@/components/documents/barcode'
+import { SignaturePad } from '@/components/documents/signature-pad'
 import { apiSend, useCollection, useSettings } from '@/lib/client'
 import { formatDate } from '@/lib/format'
-import { LETTER_TYPES, type Letter, type LetterType } from '@/lib/types'
+import { LETTER_TYPES, RECIPIENT_TITLES, SIGNER_ROLES, type Letter, type LetterType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Draft = Omit<Letter, 'id' | 'createdAt'> & { id?: string }
+
+/** مفتاح التوقيع المحفوظ في ملف صاحب الصلاحية على هذا الجهاز. */
+const SIGNATURE_KEY = 'wadidoan:saved-signature'
 
 const blank = (): Draft => ({
   type: 'letter',
   number: '',
   title: '',
   recipient: '',
+  recipientTitle: 'الموقر',
   date: new Date().toISOString().slice(0, 10),
   attachments: '',
   body: '',
   signerRole: 'المدير العام',
   signerName: '',
+  signature: '',
   isTemplate: false,
 })
 
@@ -30,8 +37,39 @@ export function LettersPanel() {
   const [draft, setDraft] = useState<Draft>(blank)
   const [view, setView] = useState<'archive' | 'templates'>('archive')
   const [msg, setMsg] = useState('')
+  const [nextNumber, setNextNumber] = useState('')
+  const [savedSignature, setSavedSignature] = useState('')
+
+  // الترقيم الإلكتروني السنوي: نعرض الرقم المتوقع من الخادم قبل الحفظ.
+  useEffect(() => {
+    let active = true
+    const query = draft.date ? `?date=${draft.date}` : ''
+    fetch(`/api/letters/next-number${query}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { number?: string } | null) => {
+        if (active && data?.number) setNextNumber(data.number)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [draft.date])
+
+  // استرجاع التوقيع المحفوظ في ملف صاحب الصلاحية.
+  useEffect(() => {
+    setSavedSignature(localStorage.getItem(SIGNATURE_KEY) ?? '')
+  }, [])
 
   const list = (letters ?? []).filter((l) => (view === 'templates' ? l.isTemplate : !l.isTemplate))
+  const docNumber = draft.number || nextNumber || '—'
+  const barcodeValue = [draft.number || nextNumber, draft.date].filter(Boolean).join('|')
+
+  function saveSignatureToProfile() {
+    if (!draft.signature) return
+    localStorage.setItem(SIGNATURE_KEY, draft.signature)
+    setSavedSignature(draft.signature)
+    setMsg('تم حفظ التوقيع في ملفك')
+  }
 
   async function save(asTemplate: boolean) {
     setMsg('')
@@ -70,8 +108,8 @@ export function LettersPanel() {
             <Field label="التاريخ">
               <Input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
             </Field>
-            <Field label="رقم الخطاب">
-              <Input value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} />
+            <Field label="رقم الخطاب (تلقائي)" hint="تسلسلي سنوي يُولَّد إلكترونيًا مثل 2026/001">
+              <Input readOnly value={draft.number || nextNumber || '—'} className="bg-muted" />
             </Field>
             <Field label="المرفقات">
               <Input value={draft.attachments} onChange={(e) => setDraft({ ...draft, attachments: e.target.value })} />
@@ -82,12 +120,26 @@ export function LettersPanel() {
             <Field label="الجهة المرسل إليها">
               <Input value={draft.recipient} onChange={(e) => setDraft({ ...draft, recipient: e.target.value })} />
             </Field>
+            <Field label="اللقب الختامي">
+              <Select
+                value={draft.recipientTitle}
+                onChange={(e) => setDraft({ ...draft, recipientTitle: e.target.value })}
+              >
+                {RECIPIENT_TITLES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field label="منصب صاحب الصلاحية">
-              <Input
-                value={draft.signerRole}
-                placeholder="مثال: المدير العام"
-                onChange={(e) => setDraft({ ...draft, signerRole: e.target.value })}
-              />
+              <Select value={draft.signerRole} onChange={(e) => setDraft({ ...draft, signerRole: e.target.value })}>
+                {SIGNER_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="اسم صاحب الصلاحية">
               <Input value={draft.signerName} onChange={(e) => setDraft({ ...draft, signerName: e.target.value })} />
@@ -96,6 +148,34 @@ export function LettersPanel() {
           <Field label="نص المستند">
             <Textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} className="min-h-64" />
           </Field>
+
+          <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+            <span className="text-sm font-medium">التوقيع الإلكتروني</span>
+            <SignaturePad value={draft.signature} onChange={(signature) => setDraft({ ...draft, signature })} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={!draft.signature} onClick={saveSignatureToProfile}>
+                <Save aria-hidden="true" />
+                حفظ التوقيع في ملفي
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!savedSignature}
+                onClick={() => setDraft({ ...draft, signature: savedSignature })}
+              >
+                <PenLine aria-hidden="true" />
+                استخدام التوقيع المحفوظ
+              </Button>
+            </div>
+            {savedSignature && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>التوقيع المحفوظ:</span>
+                <img src={savedSignature} alt="التوقيع المحفوظ" className="h-8 rounded border bg-white px-1" />
+              </div>
+            )}
+          </div>
+
           {msg && <Notice className={msg.startsWith('تم') ? 'bg-emerald-600/10 text-emerald-700' : undefined}>{msg}</Notice>}
           <div className="flex flex-wrap gap-2">
             <Button size="lg" onClick={() => save(false)}>
@@ -137,7 +217,14 @@ export function LettersPanel() {
                   onClick={() =>
                     setDraft(
                       l.isTemplate
-                        ? { ...l, id: undefined, isTemplate: false, date: new Date().toISOString().slice(0, 10) }
+                        ? {
+                            ...l,
+                            id: undefined,
+                            isTemplate: false,
+                            number: '',
+                            signature: '',
+                            date: new Date().toISOString().slice(0, 10),
+                          }
                         : { ...l },
                     )
                   }
@@ -145,6 +232,7 @@ export function LettersPanel() {
                   <span className="truncate text-sm font-medium">{l.title}</span>
                   <span className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Badge>{LETTER_TYPES.find((t) => t.id === l.type)?.label}</Badge>
+                    {l.number && <span dir="ltr">{l.number}</span>}
                     {l.date && formatDate(l.date)}
                   </span>
                 </button>
@@ -171,13 +259,11 @@ export function LettersPanel() {
           <div className="flex flex-1 flex-col px-8 pb-6 pt-8 print:px-[18mm] print:pb-[8mm] print:pt-[14mm]">
             {/* 1) الترويسة العلوية: ثلاثة أعمدة أفقية */}
             <header className="flex items-start justify-between gap-4">
-              {/* العمود الأيمن */}
+              {/* العمود الأيمن: الجهة واسم المشروع بحجم 14px داكن Bold */}
               <div className="flex-1 text-right">
-                <p className="text-[13px]">المملكة العربية السعودية</p>
-                <p className="font-heading text-xl font-bold" style={{ color: settings?.primaryColor }}>
-                  {settings?.name}
-                </p>
-                <p className="text-[12px] text-neutral-600">لتقديم الوجبات والولائم والمناسبات</p>
+                <p className="text-[14px] font-bold text-neutral-900">المملكة العربية السعودية</p>
+                <p className="text-[14px] font-bold text-neutral-900">{settings?.name}</p>
+                <p className="text-[11px] text-neutral-600">لتقديم الوجبات والولائم والمناسبات</p>
               </div>
 
               {/* العمود الأوسط: الشعار الدائري */}
@@ -194,20 +280,30 @@ export function LettersPanel() {
                 )}
               </div>
 
-              {/* العمود الأيسر: الرقم والتاريخ والمرفقات */}
-              <div className="flex-1 text-left text-[13px]">
-                <p>
-                  <span className="font-semibold">الرقم: </span>
-                  {draft.number || '—'}
-                </p>
-                <p>
-                  <span className="font-semibold">التاريخ: </span>
-                  {draft.date ? formatDate(draft.date) : '—'}
-                </p>
-                <p>
-                  <span className="font-semibold">المرفقات: </span>
-                  {draft.attachments || 'لا يوجد'}
-                </p>
+              {/* العمود الأيسر: ملصق الصادر (Sticker) مع الباركود */}
+              <div className="flex flex-1 justify-end">
+                <div className="w-full max-w-[64mm] rounded-md border-2 border-neutral-800/80 bg-neutral-50 p-2">
+                  <p className="mb-1.5 border-b border-neutral-300 pb-1 text-center text-[10px] font-bold tracking-wider text-neutral-700">
+                    ملصق الصادر
+                  </p>
+                  <dl className="space-y-0.5 text-[11px] leading-relaxed">
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-semibold text-neutral-600">الرقم</dt>
+                      <dd className="font-bold text-neutral-900" dir="ltr">
+                        {docNumber}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-semibold text-neutral-600">التاريخ</dt>
+                      <dd className="font-bold text-neutral-900">{draft.date ? formatDate(draft.date) : '—'}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="font-semibold text-neutral-600">المرفقات</dt>
+                      <dd className="max-w-[60%] truncate text-neutral-900">{draft.attachments || 'لا يوجد'}</dd>
+                    </div>
+                  </dl>
+                  {barcodeValue && <Barcode value={barcodeValue} fluid height={30} className="mt-1.5" />}
+                </div>
               </div>
             </header>
 
@@ -216,18 +312,22 @@ export function LettersPanel() {
 
             {/* 2) جسم الخطاب */}
             <div className="mt-6 flex-1 text-[14px] leading-loose">
-              <p className="text-base font-bold">
+              {/* سطر الموضوع: محاذاة لليسار */}
+              <p className="text-left text-base font-bold">
                 <span className="text-neutral-500">الموضوع: </span>
                 {draft.title || '...'}
               </p>
-              <p className="mt-4">
-                <span className="font-semibold">سعادة / </span>
-                {draft.recipient ? (
-                  <span className="font-semibold">{draft.recipient}</span>
-                ) : (
-                  <span className="mx-2 inline-block w-1/2 border-b border-dotted border-neutral-500 align-bottom">&nbsp;</span>
-                )}
-                {' الموقر'}
+              {/* سطر الجهة المرسل إليها: اللقب الختامي ثابت في أقصى نهاية السطر (اليسار) */}
+              <p className="mt-4 flex items-baseline">
+                <span className="shrink-0 font-semibold">سعادة /&nbsp;</span>
+                <span className="min-w-0 flex-1 px-1">
+                  {draft.recipient ? (
+                    <span className="font-semibold">{draft.recipient}</span>
+                  ) : (
+                    <span className="inline-block w-full border-b border-dotted border-neutral-500 align-baseline">&nbsp;</span>
+                  )}
+                </span>
+                <span className="shrink-0 font-semibold">{draft.recipientTitle || 'الموقر'}</span>
               </p>
               <p className="mt-4">السلام عليكم ورحمة الله وبركاته،،،</p>
               <div className="mt-4 whitespace-pre-wrap text-justify">
@@ -256,8 +356,12 @@ export function LettersPanel() {
               {/* صاحب الصلاحية في الجانب الأيسر */}
               <div className="flex w-56 flex-col items-center text-center text-[13px]">
                 <p className="font-semibold">{draft.signerRole || 'المدير العام'}</p>
-                <span className="mt-10 text-neutral-500">التوقيع</span>
-                <span className="mt-1 block w-full border-b border-dotted border-neutral-500" />
+                <span className="mt-6 text-neutral-500">التوقيع</span>
+                {draft.signature ? (
+                  <img src={draft.signature} alt="التوقيع الإلكتروني" className="mt-1 h-14 w-full object-contain" />
+                ) : (
+                  <span className="mt-1 block w-full border-b border-dotted border-neutral-500" />
+                )}
                 <p className="mt-1 font-semibold">{draft.signerName || '................'}</p>
               </div>
             </div>

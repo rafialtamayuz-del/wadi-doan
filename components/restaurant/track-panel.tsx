@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
-import { Check } from 'lucide-react'
+import { Check, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, Field, Input, Notice } from '@/components/ui/fields'
 import { fetcher } from '@/lib/client'
@@ -21,7 +21,8 @@ export function TrackPanel() {
   })
 
   const order = data?.order
-  const stepIndex = order ? STEPS.indexOf(order.status) : -1
+  // الطلب المسدَّد يُعامل كخطوة نهائية مكتملة في شريط المراحل.
+  const stepIndex = order ? (order.status === 'settled' ? STEPS.length - 1 : STEPS.indexOf(order.status)) : -1
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -52,6 +53,17 @@ export function TrackPanel() {
             <h2 className="font-heading text-xl font-bold">طلب رقم #{order.number}</h2>
             <Badge tone={order.status === 'cancelled' ? 'danger' : 'primary'}>{ORDER_STATUS_LABEL[order.status]}</Badge>
           </div>
+          {order.pickupCode && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/40 bg-primary/5 px-4 py-3">
+              <span className="flex items-center gap-2 text-sm font-semibold text-primary">
+                <ShieldCheck className="size-4" aria-hidden="true" />
+                كود الاستلام
+              </span>
+              <span dir="ltr" className="font-mono text-2xl font-bold tracking-[0.3em] text-primary">
+                {order.pickupCode}
+              </span>
+            </div>
+          )}
           {order.status !== 'cancelled' && (
             <ol className="grid grid-cols-4 gap-2" aria-label="مراحل الطلب">
               {STEPS.map((s, i) => (

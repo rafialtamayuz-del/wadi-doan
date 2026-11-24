@@ -1,6 +1,10 @@
+import type { StaffPermission } from './permissions'
+
 export type CategoryId =
   | 'restaurant'
   | 'thabaeh'
+  | 'adhahi'
+  | 'dhabh'
   | 'walaem'
   | 'eaasha'
   | 'iftar'
@@ -10,6 +14,8 @@ export type CategoryId =
 export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'restaurant', label: 'أطباق المطعم' },
   { id: 'thabaeh', label: 'الذبائح' },
+  { id: 'adhahi', label: 'الأضاحي' },
+  { id: 'dhabh', label: 'الذبح' },
   { id: 'walaem', label: 'الولائم' },
   { id: 'eaasha', label: 'الإعاشة' },
   { id: 'iftar', label: 'إفطار صائم' },
@@ -17,11 +23,16 @@ export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'drinks', label: 'المشروبات' },
 ]
 
-export const BOOKING_CATEGORIES: CategoryId[] = ['thabaeh', 'walaem', 'eaasha']
+export const BOOKING_CATEGORIES: CategoryId[] = ['thabaeh', 'adhahi', 'dhabh', 'walaem', 'eaasha']
+
+/** التصنيفات التي تحتاج تحديد طريقة التفصيل (الذبائح والأضاحي والذبح). */
+export const SLAUGHTER_CATEGORIES: CategoryId[] = ['thabaeh', 'adhahi', 'dhabh']
 
 /** خيارات حجز الذبائح والولائم. */
 export const COOKING_STYLES = ['مندي', 'حنيذ', 'مضغوط', 'مظبي', 'مدفون'] as const
 export const CUT_STYLES = ['بدون تقطيع', 'مكعبات', 'شرائح', 'قطع كبيرة'] as const
+/** طرق تفصيل الأضاحي والذبائح. */
+export const CUTTING_STYLES = ['حضرمي', 'ثلاجة', 'أرباع', 'كامل', 'تفصيل مخصص'] as const
 
 export const ALLERGENS = ['جلوتين', 'ألبان', 'مكسرات', 'بيض', 'سمسم', 'سمك', 'صويا']
 
@@ -69,25 +80,32 @@ export const ORDER_TYPES: { id: OrderType; label: string }[] = [
   { id: 'pickup', label: 'استلام من الفرع/المطبخ' },
 ]
 
-export type PaymentMethod = 'mada' | 'applepay' | 'visa' | 'tabby' | 'tamara' | 'pos' | 'bank'
+export type PaymentMethod = 'mada' | 'applepay' | 'visa' | 'tabby' | 'tamara' | 'pos' | 'cash' | 'bank'
 export const PAYMENT_METHODS: { id: PaymentMethod; label: string; hint: string }[] = [
   { id: 'mada', label: 'مدى', hint: 'دفع إلكتروني عبر ميسر' },
   { id: 'applepay', label: 'Apple Pay', hint: 'دفع إلكتروني عبر ميسر' },
   { id: 'visa', label: 'فيزا / ماستركارد', hint: 'دفع إلكتروني عبر ميسر' },
   { id: 'tabby', label: 'تابي', hint: 'قسّمها على 4 دفعات بدون فوائد' },
   { id: 'tamara', label: 'تمارا', hint: 'قسّمها على 3 دفعات بدون فوائد' },
-  { id: 'pos', label: 'الشبكة عند الاستلام', hint: 'ادفع بالبطاقة عند الاستلام' },
+  { id: 'pos', label: 'الشبكة عند الاستلام', hint: 'ادفع بالبطاقة عند الاستلام أو المحاسبة' },
+  { id: 'cash', label: 'الدفع كاش', hint: 'نقدًا عند الاستلام أو المحاسبة' },
   { id: 'bank', label: 'تحويل بنكي', hint: 'حوّل وارفق صورة الإيصال' },
 ]
 
-export type OrderStatus = 'new' | 'preparing' | 'ready' | 'completed' | 'cancelled'
+export type OrderStatus = 'new' | 'preparing' | 'ready' | 'completed' | 'settled' | 'cancelled'
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   new: 'جديد',
   preparing: 'قيد التجهيز',
   ready: 'جاهز للتسليم',
   completed: 'تم التسليم',
+  settled: 'تم السداد',
   cancelled: 'ملغي',
 }
+
+/** الطلبات النشطة التي ما زالت قيد التنفيذ. */
+export const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['new', 'preparing', 'ready']
+/** الطلبات المنتهية / المسلمة التي تم أرشفتها. */
+export const ARCHIVED_ORDER_STATUSES: OrderStatus[] = ['completed', 'settled', 'cancelled']
 
 export interface OrderLine {
   itemId: string
@@ -108,6 +126,11 @@ export interface Order {
   zoneId?: string
   zoneName?: string
   address?: string
+  /** العنوان الوطني المختصر (4 حروف و4 أرقام) مثل RRRD2929. */
+  shortAddress?: string
+  /** إحداثيات موقع التوصيل المستخرجة من خرائط جوجل. */
+  lat?: number
+  lng?: number
   pickupFrom?: 'branch' | 'kitchen'
   customerName: string
   phone: string
@@ -129,10 +152,8 @@ export interface Order {
   }
   status: OrderStatus
   history: { status: OrderStatus; at: string }[]
-  /** كود الاستلام الأمني (5 أرقام) — يظهر للعميل فقط، ولا يُعاد في واجهات الموظفين. */
+  /** كود الاستلام (4 أرقام) للطلبات الإلكترونية، يظهر للعميل ولموظفي المطعم والمطبخ. */
   pickupCode?: string
-  /** هل يحتاج الطلب كود استلام للتحقق قبل التسليم؟ (بديل آمن عن إظهار الكود للموظفين) */
-  requiresPickupCode?: boolean
 }
 
 export interface Complaint {
@@ -164,6 +185,12 @@ export const LETTER_TYPES: { id: LetterType; label: string }[] = [
   { id: 'claim', label: 'مطالبة مالية' },
 ]
 
+/** صيغ اللقب الختامي في سطر الجهة المرسل إليها. */
+export const RECIPIENT_TITLES = ['الموقر', 'المحترم', 'حفظه الله'] as const
+
+/** مسميات أصحاب الصلاحية والاعتماد على الخطابات. */
+export const SIGNER_ROLES = ['المدير العام', 'نائب المدير'] as const
+
 export interface Letter {
   id: string
   createdAt: string
@@ -171,11 +198,13 @@ export interface Letter {
   number: string
   title: string
   recipient: string
+  recipientTitle: string
   date: string
   attachments: string
   body: string
   signerRole: string
   signerName: string
+  signature: string
   isTemplate: boolean
 }
 
@@ -196,6 +225,89 @@ export interface BusinessLocation {
   address: string
   lat: number
   lng: number
+}
+
+/* ------------------------- الموظفون والصلاحيات ------------------------- */
+
+export type StaffAccountRole = 'owner' | 'kitchen' | 'staff'
+
+export const STAFF_ACCOUNT_ROLES: { id: StaffAccountRole; label: string }[] = [
+  { id: 'owner', label: 'صاحب المشروع' },
+  { id: 'staff', label: 'موظف المطعم' },
+  { id: 'kitchen', label: 'موظف المطبخ' },
+]
+
+export interface StaffAccount {
+  id: string
+  email: string
+  fullName: string
+  username: string
+  phone: string
+  role: StaffAccountRole
+  permissions: StaffPermission[]
+  createdAt: string
+  lastSignInAt?: string
+}
+
+/* --------------------------- القوائم المالية --------------------------- */
+
+export type ReportPeriod = 'monthly' | 'annual'
+
+export const REPORT_PERIODS: { id: ReportPeriod; label: string }[] = [
+  { id: 'monthly', label: 'قائمة شهرية' },
+  { id: 'annual', label: 'قائمة سنوية' },
+]
+
+export const MONTHS = [
+  'يناير',
+  'فبراير',
+  'مارس',
+  'أبريل',
+  'مايو',
+  'يونيو',
+  'يوليو',
+  'أغسطس',
+  'سبتمبر',
+  'أكتوبر',
+  'نوفمبر',
+  'ديسمبر',
+]
+
+export interface FinancialReport {
+  id: string
+  createdAt: string
+  period: ReportPeriod
+  year: number
+  month?: number
+  label: string
+  revenue: number
+  purchases: number
+  expenses: number
+  netProfit: number
+  ordersCount: number
+  notes?: string
+}
+
+/* ---------------------- فاتورة الشركات والقطاعات ---------------------- */
+
+export interface InvoiceLine {
+  description: string
+  qty: number
+  unitPrice: number
+}
+
+export interface CompanyInvoice {
+  id: string
+  createdAt: string
+  number: string
+  date: string
+  buyerName: string
+  buyerAddress: string
+  buyerCr: string
+  /** الرقم الضريبي للمشتري (اختياري غير ملزم). */
+  buyerVat?: string
+  lines: InvoiceLine[]
+  notes?: string
 }
 
 export interface Settings {
@@ -220,8 +332,25 @@ export interface Settings {
   accounts: BankAccount[]
 }
 
-export type CollectionName = 'menu' | 'zones' | 'complaints' | 'purchases' | 'letters' | 'accounts'
+export type CollectionName =
+  | 'menu'
+  | 'zones'
+  | 'complaints'
+  | 'purchases'
+  | 'letters'
+  | 'accounts'
+  | 'reports'
+  | 'invoices'
 
-export const COLLECTIONS: CollectionName[] = ['menu', 'zones', 'complaints', 'purchases', 'letters', 'accounts']
+export const COLLECTIONS: CollectionName[] = [
+  'menu',
+  'zones',
+  'complaints',
+  'purchases',
+  'letters',
+  'accounts',
+  'reports',
+  'invoices',
+]
 
 export const isCollection = (name: string): name is CollectionName => (COLLECTIONS as string[]).includes(name)

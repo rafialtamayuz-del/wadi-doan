@@ -5,7 +5,7 @@ import { isCollection, type CollectionName } from '@/lib/types'
 type Ctx = { params: Promise<{ collection: string }> }
 
 /** مجموعات لا يجوز للعملاء قراءتها؛ تتطلب تسجيل دخول صاحب المشروع. */
-const ADMIN_ONLY_READ: CollectionName[] = ['purchases', 'letters', 'complaints']
+const ADMIN_ONLY_READ: CollectionName[] = ['purchases', 'letters', 'complaints', 'reports', 'invoices']
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { collection } = await params

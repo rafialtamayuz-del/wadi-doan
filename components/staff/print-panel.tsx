@@ -8,7 +8,7 @@ import { useOrders } from '@/lib/client'
 import { formatDateTime, sar } from '@/lib/format'
 import { ORDER_STATUS_LABEL } from '@/lib/types'
 
-const STATUS_TONE = { new: 'danger', preparing: 'accent', ready: 'primary', completed: 'success', cancelled: 'neutral' } as const
+const STATUS_TONE = { new: 'danger', preparing: 'accent', ready: 'primary', completed: 'success', settled: 'success', cancelled: 'neutral' } as const
 const PAY_LABEL = { paid: 'مدفوع', pending: 'عند الاستلام', review: 'مراجعة التحويل' } as const
 
 /** محطة الطباعة السريعة: اختر الطلب واطبع الفاتورة الضريبية أو بون المطبخ. */

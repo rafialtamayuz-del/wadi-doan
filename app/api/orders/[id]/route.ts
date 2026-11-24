@@ -1,4 +1,4 @@
-import { getOrder, hidePickupCode, updateOrder } from '@/lib/data'
+import { getOrder, updateOrder } from '@/lib/data'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { ORDER_STATUS_LABEL, type Order, type OrderStatus } from '@/lib/types'
 
@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   try {
     const order = await getOrder(id)
     if (!order) return Response.json({ error: 'الطلب غير موجود' }, { status: 404 })
-    const { payment, ...rest } = hidePickupCode(order)
+    const { payment, ...rest } = order
     return Response.json({ ...rest, payment: { ...payment, receipt: undefined } })
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 500 })
@@ -26,7 +26,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
     status?: OrderStatus
     priority?: Order['priority']
     paymentStatus?: Order['payment']['status']
-    pickupCode?: string
   }
 
   if (body.status && !(body.status in ORDER_STATUS_LABEL)) {
@@ -40,25 +39,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   try {
-    // التحقق من كود الاستلام قبل تسليم أي طلب مدفوع إلكترونيًا (حماية حق العميل).
-    if (body.status === 'completed') {
-      const current = await getOrder(id)
-      if (!current) return Response.json({ error: 'الطلب غير موجود' }, { status: 404 })
-      if (current.pickupCode) {
-        const given = String(body.pickupCode ?? '').replace(/\D/g, '')
-        if (given !== current.pickupCode) {
-          return Response.json({ error: 'كود الاستلام غير صحيح، اطلب الكود من العميل قبل التسليم.' }, { status: 400 })
-        }
-      }
-    }
-
     const order = await updateOrder(id, {
       status: body.status,
       priority: body.priority,
       paymentStatus: body.paymentStatus,
     })
     if (!order) return Response.json({ error: 'الطلب غير موجود' }, { status: 404 })
-    return Response.json(hidePickupCode(order))
+    return Response.json(order)
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 500 })
   }

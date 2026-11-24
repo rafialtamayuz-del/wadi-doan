@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, Loader2 } from 'lucide-react'
+import { ArrowRight, Loader2, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, Input, Notice, Select, Textarea } from '@/components/ui/fields'
 import { apiSend, fileToDataUrl, useCollection, useSettings } from '@/lib/client'
@@ -20,6 +20,22 @@ import {
 import { cn } from '@/lib/utils'
 
 const ELECTRONIC: PaymentMethod[] = ['mada', 'applepay', 'visa', 'tabby', 'tamara']
+
+/** صيغة العنوان الوطني المختصر: 4 حروف + 4 أرقام (مثال: RRRD2929). */
+const SHORT_ADDRESS_RE = /^[A-Za-z]{4}\d{4}$/
+
+/** نتيجة تعبئة العنوان التلقائية من خدمة خرائط جوجل. */
+type GeoResult = {
+  city: string
+  district: string
+  street: string
+  postalCode: string
+  lat?: number
+  lng?: number
+  /** العنوان المختصر الذي عُبِّئت منه الخانات (لتجنّب إعادة الطلب نفسه). */
+  shortAddressFor?: string
+}
+const EMPTY_GEO: GeoResult = { city: '', district: '', street: '', postalCode: '' }
 
 export function CheckoutForm({
   lines,
@@ -44,6 +60,12 @@ export function CheckoutForm({
   const [zoneId, setZoneId] = useState('')
   const [method, setMethod] = useState<PaymentMethod | ''>('')
   const [receipt, setReceipt] = useState('')
+  const [shortAddress, setShortAddress] = useState('')
+  const [geo, setGeo] = useState<GeoResult>(EMPTY_GEO)
+  const [autoFilled, setAutoFilled] = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
+  const [geoError, setGeoError] = useState('')
+  const [detail, setDetail] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -63,16 +85,59 @@ export function CheckoutForm({
     }
   }
 
+  /** يجلب بيانات العنوان من خرائط جوجل عبر العنوان الوطني المختصر ويعبّئ خانات العنوان تلقائيًا. */
+  async function lookup(force = false) {
+    const short = shortAddress.trim().toUpperCase()
+    if (!short) return
+    if (!SHORT_ADDRESS_RE.test(short)) {
+      setGeoError('صيغة العنوان الوطني المختصر غير صحيحة (4 حروف و4 أرقام، مثال: RRRD2929)')
+      return
+    }
+    if (!force && short === geo.shortAddressFor) return
+    setGeoLoading(true)
+    setGeoError('')
+    try {
+      const res = await fetch(`/api/geocode?short=${encodeURIComponent(short)}`)
+      const data = (await res.json().catch(() => ({}))) as Partial<GeoResult> & { error?: string; shortAddressFor?: string }
+      if (!res.ok) throw new Error(data.error || 'تعذّر تحديد الموقع')
+      setGeo({
+        city: data.city ?? '',
+        district: data.district ?? '',
+        street: data.street ?? '',
+        postalCode: data.postalCode ?? '',
+        lat: data.lat,
+        lng: data.lng,
+        shortAddressFor: short,
+      })
+      setAutoFilled(true)
+    } catch (e) {
+      setGeoError((e as Error).message)
+    } finally {
+      setGeoLoading(false)
+    }
+  }
+
+  const mapSrc =
+    geo.lat !== undefined && geo.lng !== undefined
+      ? `https://maps.google.com/maps?q=${geo.lat},${geo.lng}&hl=ar&z=15&output=embed`
+      : ''
+
   async function submit(form: FormData) {
     setError('')
     if (!method) return setError('يرجى اختيار طريقة الدفع')
     setSubmitting(true)
     try {
+      // العنوان المحفوظ يُبنى من تفاصيل العنوان الكاملة المعبّأة من خرائط جوجل (قابل للتعديل يدويًا).
+      const composed = [detail, geo.street, geo.district, geo.city].map((v) => v.trim()).filter(Boolean).join('، ')
+      const address = composed.length >= 5 ? composed : shortAddress.trim().toUpperCase()
       const order = await apiSend<Order>('/api/orders', 'POST', {
         type,
         table: form.get('table'),
         zoneId,
-        address: form.get('address'),
+        address: type === 'delivery' ? address : undefined,
+        shortAddress: type === 'delivery' ? shortAddress.trim().toUpperCase() : undefined,
+        lat: type === 'delivery' ? geo.lat : undefined,
+        lng: type === 'delivery' ? geo.lng : undefined,
         pickupFrom: form.get('pickupFrom'),
         customerName: form.get('customerName'),
         phone: form.get('phone'),
@@ -134,8 +199,67 @@ export function CheckoutForm({
                 ))}
             </Select>
           </Field>
-          <Field label="العنوان التفصيلي">
-            <Textarea name="address" required minLength={5} placeholder="الشارع، رقم المبنى، أقرب معلم" className="min-h-16" />
+
+          <Field label="العنوان الوطني المختصر" hint="4 حروف و4 أرقام، مثال: RRRD2929">
+            <div className="flex gap-2">
+              <Input
+                dir="ltr"
+                value={shortAddress}
+                onChange={(e) => {
+                  setShortAddress(e.target.value.toUpperCase().slice(0, 8))
+                  setAutoFilled(false)
+                }}
+                onBlur={() => lookup()}
+                placeholder="RRRD2929"
+                maxLength={8}
+                autoCapitalize="characters"
+                className="flex-1 font-mono tracking-widest"
+                required
+              />
+              <Button type="button" variant="outline" disabled={geoLoading} onClick={() => lookup(true)}>
+                {geoLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <MapPin aria-hidden="true" />}
+                تحديد الموقع
+              </Button>
+            </div>
+          </Field>
+
+          {geoError && <Notice>{geoError}</Notice>}
+          {autoFilled && !geoError && (
+            <p className="rounded-lg bg-accent/20 px-3 py-2 text-xs leading-relaxed">
+              تم تعبئة تفاصيل العنوان تلقائيًا من خرائط جوجل، ويمكنك تعديلها عند الحاجة.
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="المدينة">
+              <Input value={geo.city} onChange={(e) => setGeo({ ...geo, city: e.target.value })} placeholder="تلقائي من الخريطة" />
+            </Field>
+            <Field label="الحي">
+              <Input value={geo.district} onChange={(e) => setGeo({ ...geo, district: e.target.value })} placeholder="تلقائي من الخريطة" />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="الشارع">
+              <Input value={geo.street} onChange={(e) => setGeo({ ...geo, street: e.target.value })} placeholder="تلقائي من الخريطة" />
+            </Field>
+            <Field label="الرمز البريدي">
+              <Input
+                dir="ltr"
+                value={geo.postalCode}
+                onChange={(e) => setGeo({ ...geo, postalCode: e.target.value })}
+                placeholder="تلقائي من الخريطة"
+              />
+            </Field>
+          </div>
+
+          {mapSrc && (
+            <div className="overflow-hidden rounded-xl border">
+              <iframe title="خريطة موقع التوصيل" src={mapSrc} className="aspect-[16/9] w-full" loading="lazy" />
+            </div>
+          )}
+
+          <Field label="تفاصيل إضافية" hint="رقم المبنى، الدور، أقرب معلم (اختياري)">
+            <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} maxLength={200} className="min-h-16" />
           </Field>
         </>
       )}
@@ -149,13 +273,26 @@ export function CheckoutForm({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="الاسم">
-          <Input name="customerName" required minLength={2} autoComplete="name" />
+        <Field label={type === 'dinein' ? 'الاسم (اختياري)' : 'الاسم'}>
+          <Input name="customerName" required={type !== 'dinein'} minLength={2} autoComplete="name" />
         </Field>
-        <Field label="رقم الجوال">
-          <Input name="phone" required type="tel" dir="ltr" placeholder="05xxxxxxxx" pattern="[+0-9\s]{9,15}" autoComplete="tel" />
+        <Field label={type === 'dinein' ? 'رقم الجوال (اختياري)' : 'رقم الجوال'}>
+          <Input
+            name="phone"
+            required={type !== 'dinein'}
+            type="tel"
+            dir="ltr"
+            placeholder="05xxxxxxxx"
+            pattern="[+0-9\s]{9,15}"
+            autoComplete="tel"
+          />
         </Field>
       </div>
+      {type === 'dinein' && (
+        <p className="rounded-lg bg-accent/20 px-3 py-2 text-xs leading-relaxed">
+          الطلب المحلي داخل المطعم: إدخال الاسم ورقم الجوال اختياري، ويتم الدفع عند المحاسبة.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label={isBooking ? 'تاريخ ووقت الحجز' : 'موعد الاستلام (اختياري)'}>

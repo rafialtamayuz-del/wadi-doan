@@ -1,5 +1,32 @@
 export type StaffRole = 'owner' | 'kitchen' | 'staff'
 
+/** نطاق البريد الداخلي المشتق من اسم المستخدم (رقم الجوال أو الهوية) لحسابات الموظفين. */
+export const STAFF_EMAIL_DOMAIN = 'staff.wadidoan.sa'
+
+/**
+ * يوحّد اسم المستخدم الرقمي إلى صيغة قياسية لضمان تطابق تسجيل الدخول:
+ * يحذف الرموز ومقدمة الدولة (966 / 0) ليصبح رقم الجوال 9 خانات، ويُبقي رقم الهوية 10 خانات.
+ */
+export function normalizeUsername(value: string): string {
+  const v = value.trim()
+  if (v.includes('@')) return v.toLowerCase()
+  let d = v.replace(/\D/g, '')
+  if (d.startsWith('966') && d.length === 12) d = d.slice(3)
+  else if (d.startsWith('0') && d.length === 10) d = d.slice(1)
+  return d || v.toLowerCase()
+}
+
+/** يحوّل اسم المستخدم (رقم الجوال أو الهوية) إلى بريد داخلي لحساب Supabase Auth. */
+export function usernameToEmail(username: string): string {
+  return `${normalizeUsername(username)}@${STAFF_EMAIL_DOMAIN}`
+}
+
+/** يقبل البريد الإلكتروني كما هو، أو يحوّل اسم المستخدم (بدون @) إلى البريد الداخلي. */
+export function loginIdToEmail(value: string): string {
+  const v = value.trim()
+  return v.includes('@') ? v.toLowerCase() : usernameToEmail(v)
+}
+
 /** الصفحة الرئيسية لكل دور بعد تسجيل الدخول. */
 export const ROLE_HOME: Record<StaffRole, string> = {
   owner: '/admin',
@@ -9,6 +36,7 @@ export const ROLE_HOME: Record<StaffRole, string> = {
 
 /** المسارات المحمية والأدوار المسموح لها بالدخول إليها. */
 export const PROTECTED_ROUTES: { prefix: string; roles: StaffRole[] }[] = [
+  { prefix: '/account', roles: ['owner', 'kitchen', 'staff'] },
   { prefix: '/staff', roles: ['staff', 'owner'] },
   { prefix: '/kitchen', roles: ['kitchen', 'owner'] },
   { prefix: '/admin', roles: ['owner'] },
@@ -39,6 +67,7 @@ export function canAccess(role: StaffRole, pathname: string): boolean {
 }
 
 const ROUTE_LABEL: Record<string, string> = {
+  '/account': 'حسابي',
   '/staff': 'موظفو المطعم',
   '/kitchen': 'المطبخ',
   '/admin': 'صاحب المشروع',
