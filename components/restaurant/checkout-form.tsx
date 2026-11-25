@@ -151,7 +151,7 @@ export function CheckoutForm({
       // طلب الطاولة المدفوع إلكترونيًا: يُغلق الطاولة تلقائيًا ويعرض شاشة تقييم الخدمة للعميل.
       if (table && ELECTRONIC.includes(method as PaymentMethod)) {
         try {
-          await apiSend('/api/tables', 'POST', { action: 'pay', table: Number(table), orderId: order.id })
+          await apiSend('/api/actions', 'POST', { action: 'table-pay', table: Number(table), orderId: order.id })
         } catch {
           // نتجاهل تعذّر إغلاق الطاولة ونكمل إلى شاشة التقييم.
         }

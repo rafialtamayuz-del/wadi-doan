@@ -24,7 +24,7 @@ export function ServiceRating() {
     setSaving(true)
     setError('')
     try {
-      await apiSend('/api/ratings', 'POST', { orderId, table, rating, comment })
+      await apiSend('/api/actions', 'POST', { action: 'rate', orderId, table, rating, comment })
       setDone(true)
     } catch (e) {
       setError((e as Error).message)

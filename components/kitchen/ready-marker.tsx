@@ -14,7 +14,7 @@ export function ReadyMarker({ orderId }: { orderId: string }) {
 
   useEffect(() => {
     let cancelled = false
-    apiSend<Order>(`/api/orders/${orderId}/ready`, 'POST')
+    apiSend<Order>('/api/actions', 'POST', { action: 'order-ready', orderId })
       .then((o) => {
         if (cancelled) return
         setOrder(o)

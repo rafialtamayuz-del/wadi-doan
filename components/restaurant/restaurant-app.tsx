@@ -62,7 +62,7 @@ export function RestaurantApp() {
   useEffect(() => {
     const tableNo = Number(table)
     if (!table || !Number.isInteger(tableNo) || tableNo <= 0) return
-    void apiSend('/api/tables', 'POST', { action: 'open', table: tableNo }).catch(() => {})
+    void apiSend('/api/actions', 'POST', { action: 'table-open', table: tableNo }).catch(() => {})
   }, [table])
 
   const activeMenuTab = MENU_TABS.find((t) => t.id === tab)

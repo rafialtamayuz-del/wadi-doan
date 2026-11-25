@@ -1,11 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, MapPin, Plus, Trash2 } from 'lucide-react'
+import { Check, Copy, Loader2, MapPin, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, Field, Input, Notice, Textarea } from '@/components/ui/fields'
-import { apiSend, fileToDataUrl, useSettings } from '@/lib/client'
+import { apiSend, fetcher, fileToDataUrl, useSettings } from '@/lib/client'
 import type { Settings } from '@/lib/types'
+
+/** تنظيف العنوان الوطني المختصر: حروف إنجليزية كبيرة وأرقام فقط بحد 8 خانات (مثل JEDA1234). */
+function normalizeShort(v: string): string {
+  return v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8)
+}
 
 /** استخراج الإحداثيات من رابط خرائط جوجل أو نص "خط العرض,خط الطول". */
 function parseCoords(input: string): { lat: number; lng: number } | null {
@@ -38,7 +43,57 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [mapLink, setMapLink] = useState<Record<string, string>>({})
+  const [copied, setCopied] = useState<string | null>(null)
+  const [extracting, setExtracting] = useState<string | null>(null)
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((p) => ({ ...p, [k]: v }))
+
+  /** نسخ نص بضغطة زر مع إظهار تأكيد مؤقت. */
+  async function copyText(text: string, key: string) {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1500)
+    } catch {
+      setMsg({ ok: false, text: 'تعذّر النسخ تلقائيًا، انسخ العنوان يدويًا.' })
+    }
+  }
+
+  /** استخراج إحداثيات الموقع من العنوان الوطني المختصر وربطها بالخريطة. */
+  async function extractLocation(id: string, code: string) {
+    const short = code.trim().toUpperCase()
+    if (!/^[A-Z]{4}\d{4}$/.test(short)) {
+      setMsg({ ok: false, text: 'صيغة العنوان الوطني المختصر غير صحيحة (4 حروف إنجليزية و4 أرقام).' })
+      return
+    }
+    setExtracting(id)
+    setMsg(null)
+    try {
+      const geo = await fetcher<{ city: string; district: string; street: string; formatted: string; lat: number; lng: number }>(
+        `/api/geocode?short=${short}`,
+      )
+      const composed = [geo.street, geo.district, geo.city].map((v) => v?.trim()).filter(Boolean).join('، ')
+      set(
+        'locations',
+        s.locations.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                shortAddress: short,
+                address: x.address.trim() ? x.address : geo.formatted || composed,
+                lat: geo.lat ?? x.lat,
+                lng: geo.lng ?? x.lng,
+              }
+            : x,
+        ),
+      )
+      setMsg({ ok: true, text: `تم استخراج إحداثيات «${short}» وربطها بالخريطة.` })
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setExtracting(null)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -119,6 +174,23 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
         <Field label="الحي">
           <Input value={s.district} onChange={(e) => set('district', e.target.value)} />
         </Field>
+        <div className="flex flex-col gap-1.5 text-sm md:col-span-2">
+          <span className="font-medium">العنوان الوطني المختصر (المقر الرئيسي)</span>
+          <div className="flex flex-wrap gap-2">
+            <Input
+              dir="ltr"
+              className="min-w-40 flex-1"
+              placeholder="JEDA1234"
+              value={s.shortAddress}
+              onChange={(e) => set('shortAddress', normalizeShort(e.target.value))}
+            />
+            <Button type="button" variant="outline" className="h-10" disabled={!s.shortAddress} onClick={() => copyText(s.shortAddress, 'main')}>
+              {copied === 'main' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+              نسخ
+            </Button>
+          </div>
+          <span className="text-xs text-muted-foreground">4 حروف إنجليزية كبيرة + 4 أرقام (مثل JEDA1234)</span>
+        </div>
         <Field label="الرقم الضريبي">
           <Input dir="ltr" value={s.vatNumber} onChange={(e) => set('vatNumber', e.target.value)} />
         </Field>
@@ -152,7 +224,7 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
         <div className="flex flex-col gap-1">
           <h3 className="font-heading text-lg font-bold">المواقع على الخريطة</h3>
           <p className="text-sm text-muted-foreground">
-            حدّد موقع المطعم أو المطبخ بإحداثياته، أو الصق رابط الموقع من خرائط جوجل لاستخراج الإحداثيات تلقائيًا. يظهر الموقع للعملاء في الصفحة الرئيسية.
+            حدّد موقع المطعم أو المطبخ بعنوانه الوطني المختصر (يُستخرج الموقع تلقائيًا) أو بإحداثياته أو برابط خرائط جوجل. يظهر الموقع للعملاء في الصفحة الرئيسية.
           </p>
         </div>
         {s.locations.map((loc, i) => {
@@ -174,6 +246,39 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
                 <Field label="خط الطول">
                   <Input dir="ltr" type="number" step="any" value={loc.lng} onChange={(e) => upd({ lng: Number(e.target.value) })} />
                 </Field>
+              </div>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium">العنوان الوطني المختصر</span>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    dir="ltr"
+                    className="min-w-40 flex-1"
+                    placeholder="JEDA1234"
+                    value={loc.shortAddress ?? ''}
+                    onChange={(e) => upd({ shortAddress: normalizeShort(e.target.value) })}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10"
+                    disabled={extracting === loc.id}
+                    onClick={() => extractLocation(loc.id, loc.shortAddress ?? '')}
+                  >
+                    {extracting === loc.id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <MapPin aria-hidden="true" />}
+                    استخراج الموقع
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10"
+                    disabled={!loc.shortAddress}
+                    onClick={() => copyText(loc.shortAddress ?? '', `loc-${loc.id}`)}
+                  >
+                    {copied === `loc-${loc.id}` ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                    نسخ
+                  </Button>
+                </div>
+                <span className="text-xs text-muted-foreground">4 حروف إنجليزية كبيرة + 4 أرقام (مثل JEDA1234)</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
                 <Field label="رابط الموقع من خرائط جوجل" hint="الصق رابط المكان أو الإحداثيات ثم اضغط تحديث الموقع">
