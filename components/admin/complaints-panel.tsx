@@ -4,7 +4,7 @@ import { Badge, Card, Textarea } from '@/components/ui/fields'
 import { Button } from '@/components/ui/button'
 import { apiSend, useCollection } from '@/lib/client'
 import { formatDateTime } from '@/lib/format'
-import type { Complaint } from '@/lib/types'
+import { COMPLAINT_TYPES, type Complaint } from '@/lib/types'
 
 export function ComplaintsPanel() {
   const { data: complaints, mutate } = useCollection<Complaint>('complaints', 10000)
@@ -16,7 +16,7 @@ export function ComplaintsPanel() {
     await mutate()
   }
 
-  if (complaints?.length === 0) return <p className="text-muted-foreground">لا توجد شكاوى حاليًا</p>
+  if (complaints?.length === 0) return <p className="text-muted-foreground">لا توجد شكاوى أو مقترحات حاليًا</p>
 
   return (
     <ul className="flex flex-col gap-4">
@@ -31,7 +31,12 @@ export function ComplaintsPanel() {
                   {c.orderNumber && ` · طلب #${c.orderNumber}`}
                 </p>
               </div>
-              <Badge tone={c.status === 'resolved' ? 'success' : 'warning'}>{c.status === 'resolved' ? 'تم الرد' : 'مفتوحة'}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge tone={c.type === 'suggestion' ? 'accent' : 'primary'}>
+                  {COMPLAINT_TYPES.find((t) => t.id === c.type)?.label ?? 'شكوى'}
+                </Badge>
+                <Badge tone={c.status === 'resolved' ? 'success' : 'warning'}>{c.status === 'resolved' ? 'تم الرد' : 'مفتوحة'}</Badge>
+              </div>
             </div>
             <p className="leading-relaxed">{c.message}</p>
             <form action={(f) => reply(c.id, f)} className="flex flex-col gap-2">

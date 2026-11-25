@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, Select } from '@/components/ui/fields'
-import { apiSend, useOrders } from '@/lib/client'
-import type { Order, OrderStatus } from '@/lib/types'
+import { apiSend, useCollection, useOrders } from '@/lib/client'
+import { effectivePrice, sar } from '@/lib/format'
+import { BOOKING_CATEGORIES, CATEGORIES, KITCHEN_SECTIONS, type MenuItem, type Order, type OrderStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { OrderTicket } from './order-ticket'
 
@@ -40,8 +41,10 @@ function beep(ctx: AudioContext) {
 
 export function KitchenBoard() {
   const { data: orders, mutate } = useOrders(3000)
+  const { data: menu } = useCollection<MenuItem>('menu')
   const [soundOn, setSoundOn] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
+  const [view, setView] = useState<'board' | 'menu'>('board')
   const [flash, setFlash] = useState(false)
   const seen = useRef<Set<string> | null>(null)
   const audio = useRef<AudioContext | null>(null)
@@ -111,19 +114,46 @@ export function KitchenBoard() {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select aria-label="تصفية الطلبات" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} className="w-48">
-            <option value="all">كل الطلبات</option>
-            <option value="restaurant">طلبات المطعم الفورية</option>
-            <option value="booking">الذبائح والأضاحي والولائم والإعاشة</option>
-          </Select>
-          <Button variant={soundOn ? 'default' : 'outline'} size="lg" onClick={toggleSound} aria-pressed={soundOn}>
-            {soundOn ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
-            {soundOn ? 'التنبيه الصوتي مفعّل' : 'تفعيل التنبيه الصوتي'}
-          </Button>
+          <div role="tablist" aria-label="عرض المطبخ" className="flex gap-1 rounded-xl bg-muted p-1">
+            {([
+              { id: 'board', label: 'شاشة التحضير' },
+              { id: 'menu', label: 'منيو المطبخ والأضاحي' },
+            ] as const).map((v) => (
+              <button
+                key={v.id}
+                role="tab"
+                type="button"
+                aria-selected={view === v.id}
+                onClick={() => setView(v.id)}
+                className={cn(
+                  'rounded-lg px-3 py-2 text-sm font-medium transition',
+                  view === v.id ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          {view === 'board' && (
+            <>
+              <Select aria-label="تصفية الطلبات" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} className="w-48">
+                <option value="all">كل الطلبات</option>
+                <option value="restaurant">طلبات المطعم الفورية</option>
+                <option value="booking">الذبائح والأضاحي والولائم والإعاشة</option>
+              </Select>
+              <Button variant={soundOn ? 'default' : 'outline'} size="lg" onClick={toggleSound} aria-pressed={soundOn}>
+                {soundOn ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
+                {soundOn ? 'التنبيه الصوتي مفعّل' : 'تفعيل التنبيه الصوتي'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_280px]">
+      {view === 'menu' ? (
+        <KitchenMenu menu={menu ?? []} />
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-[1fr_280px]">
         <div className="grid gap-4 lg:grid-cols-3">
           {COLUMNS.map((col) => {
             const list = active.filter((o) => o.status === col.status).sort(sortOrders)
@@ -156,7 +186,45 @@ export function KitchenBoard() {
             </ul>
           )}
         </Card>
-      </div>
+        </div>
+      )}
     </main>
+  )
+}
+
+/** عرض منيو المطبخ (أصناف المطبخ والولائم) مع قسم خاص بالأضاحي. */
+function KitchenMenu({ menu }: { menu: MenuItem[] }) {
+  const items = menu.filter((m) => m.active && KITCHEN_SECTIONS.includes(m.menuSection))
+  const groups = CATEGORIES.filter((c) => items.some((m) => m.category === c.id))
+
+  return (
+    <div className="flex flex-col gap-6">
+      {groups.length === 0 && <p className="py-10 text-center text-muted-foreground">لا توجد أصناف في منيو المطبخ حاليًا</p>}
+      {groups.map((cat) => {
+        const list = items.filter((m) => m.category === cat.id)
+        const isAdhahi = cat.id === 'adhahi'
+        return (
+          <section key={cat.id} aria-label={cat.label} className={cn('flex flex-col gap-3 rounded-2xl border p-4', isAdhahi && 'border-accent bg-accent/10')}>
+            <h2 className="flex items-center gap-2 font-heading text-lg font-bold">
+              {cat.label}
+              {isAdhahi && <Badge tone="accent">قسم الأضاحي</Badge>}
+              {BOOKING_CATEGORIES.includes(cat.id) && <Badge>حجز</Badge>}
+            </h2>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {list.map((item) => (
+                <li key={item.id} className="flex gap-3 rounded-xl border bg-card p-3">
+                  <img src={item.image || '/images/hero.png'} alt="" className="size-16 shrink-0 rounded-lg object-cover" />
+                  <div className="min-w-0">
+                    <p className="font-semibold leading-snug">{item.name}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.description}</p>
+                    <p className="mt-1 font-bold text-primary">{sar(effectivePrice(item))}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      })}
+    </div>
   )
 }

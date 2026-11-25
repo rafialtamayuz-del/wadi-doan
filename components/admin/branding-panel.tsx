@@ -1,11 +1,31 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Plus, Trash2 } from 'lucide-react'
+import { Loader2, MapPin, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, Field, Input, Notice, Textarea } from '@/components/ui/fields'
 import { apiSend, fileToDataUrl, useSettings } from '@/lib/client'
 import type { Settings } from '@/lib/types'
+
+/** استخراج الإحداثيات من رابط خرائط جوجل أو نص "خط العرض,خط الطول". */
+function parseCoords(input: string): { lat: number; lng: number } | null {
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+    /[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/,
+  ]
+  for (const re of patterns) {
+    const m = input.match(re)
+    if (!m) continue
+    const lat = Number(m[1])
+    const lng = Number(m[2])
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng }
+    }
+  }
+  return null
+}
 
 export function BrandingPanel() {
   const { data, mutate } = useSettings()
@@ -17,6 +37,7 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
   const [s, setS] = useState(initial)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [mapLink, setMapLink] = useState<Record<string, string>>({})
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((p) => ({ ...p, [k]: v }))
 
   async function save() {
@@ -128,23 +149,72 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
       </Card>
 
       <Card className="flex flex-col gap-3 p-5">
-        <h3 className="font-heading text-lg font-bold">المواقع على الخريطة</h3>
+        <div className="flex flex-col gap-1">
+          <h3 className="font-heading text-lg font-bold">المواقع على الخريطة</h3>
+          <p className="text-sm text-muted-foreground">
+            حدّد موقع المطعم أو المطبخ بإحداثياته، أو الصق رابط الموقع من خرائط جوجل لاستخراج الإحداثيات تلقائيًا. يظهر الموقع للعملاء في الصفحة الرئيسية.
+          </p>
+        </div>
         {s.locations.map((loc, i) => {
           const upd = (patch: Partial<typeof loc>) => set('locations', s.locations.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+          const valid = Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && (loc.lat !== 0 || loc.lng !== 0)
+          const embed = `https://maps.google.com/maps?q=${loc.lat},${loc.lng}&hl=ar&z=16&output=embed`
           return (
-            <div key={loc.id} className="grid gap-2 rounded-lg bg-muted/50 p-3 sm:grid-cols-4">
-              <Field label="الاسم">
-                <Input value={loc.name} onChange={(e) => upd({ name: e.target.value })} />
-              </Field>
-              <Field label="العنوان">
-                <Input value={loc.address} onChange={(e) => upd({ address: e.target.value })} />
-              </Field>
-              <Field label="خط العرض">
-                <Input dir="ltr" type="number" step="any" value={loc.lat} onChange={(e) => upd({ lat: Number(e.target.value) })} />
-              </Field>
-              <Field label="خط الطول">
-                <Input dir="ltr" type="number" step="any" value={loc.lng} onChange={(e) => upd({ lng: Number(e.target.value) })} />
-              </Field>
+            <div key={loc.id} className="flex flex-col gap-3 rounded-lg bg-muted/50 p-3">
+              <div className="grid gap-2 sm:grid-cols-4">
+                <Field label="الاسم">
+                  <Input value={loc.name} onChange={(e) => upd({ name: e.target.value })} />
+                </Field>
+                <Field label="العنوان">
+                  <Input value={loc.address} onChange={(e) => upd({ address: e.target.value })} />
+                </Field>
+                <Field label="خط العرض">
+                  <Input dir="ltr" type="number" step="any" value={loc.lat} onChange={(e) => upd({ lat: Number(e.target.value) })} />
+                </Field>
+                <Field label="خط الطول">
+                  <Input dir="ltr" type="number" step="any" value={loc.lng} onChange={(e) => upd({ lng: Number(e.target.value) })} />
+                </Field>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                <Field label="رابط الموقع من خرائط جوجل" hint="الصق رابط المكان أو الإحداثيات ثم اضغط تحديث الموقع">
+                  <Input
+                    dir="ltr"
+                    placeholder="https://maps.google.com/..."
+                    value={mapLink[loc.id] ?? ''}
+                    onChange={(e) => setMapLink((p) => ({ ...p, [loc.id]: e.target.value }))}
+                  />
+                </Field>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10"
+                  onClick={() => {
+                    const coords = parseCoords(mapLink[loc.id] ?? '')
+                    if (!coords) {
+                      setMsg({ ok: false, text: 'تعذّر استخراج الإحداثيات من الرابط، حاول مرة أخرى أو أدخلها يدويًا.' })
+                      return
+                    }
+                    upd(coords)
+                    setMsg({ ok: true, text: `تم تحديث موقع «${loc.name}» على الخريطة.` })
+                  }}
+                >
+                  <MapPin aria-hidden="true" />
+                  تحديث الموقع
+                </Button>
+              </div>
+              <div className="overflow-hidden rounded-lg border bg-background">
+                {valid ? (
+                  <iframe
+                    key={`${loc.lat},${loc.lng}`}
+                    title={`خريطة ${loc.name || 'الموقع'}`}
+                    src={embed}
+                    className="aspect-[16/9] w-full"
+                    loading="lazy"
+                  />
+                ) : (
+                  <p className="p-4 text-center text-sm text-muted-foreground">أدخل الإحداثيات أو الصق رابط الموقع لعرض الخريطة.</p>
+                )}
+              </div>
             </div>
           )
         })}

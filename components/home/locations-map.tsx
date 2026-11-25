@@ -10,8 +10,7 @@ export function LocationsMap({ locations }: { locations: BusinessLocation[] }) {
   const active = locations.find((l) => l.id === activeId) ?? locations[0]
   if (!active) return null
 
-  const d = 0.008
-  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${active.lng - d},${active.lat - d},${active.lng + d},${active.lat + d}&layer=mapnik&marker=${active.lat},${active.lng}`
+  const src = `https://maps.google.com/maps?q=${active.lat},${active.lng}&hl=ar&z=16&output=embed`
 
   return (
     <div className="flex flex-col gap-4">

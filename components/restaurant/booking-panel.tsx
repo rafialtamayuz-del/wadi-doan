@@ -7,31 +7,44 @@ import { Card, Field, Input, Select } from '@/components/ui/fields'
 import { effectivePrice, sar } from '@/lib/format'
 import {
   BOOKING_CATEGORIES,
+  BOOKING_TYPE_CHOICES,
   CATEGORIES,
   COOKING_STYLES,
   CUTTING_STYLES,
   CUT_STYLES,
   KITCHEN_SECTIONS,
   SLAUGHTER_CATEGORIES,
+  type CategoryId,
   type MenuItem,
 } from '@/lib/types'
+import { cn } from '@/lib/utils'
+
+// خيارات التصنيف الرئيسية: ذبيحة / وليمة / زواج / أضحية، مع إتاحة بقية أقسام المطبخ (الذبح والإعاشة).
+const TYPE_CHOICES: { id: CategoryId; label: string }[] = [
+  ...BOOKING_TYPE_CHOICES,
+  ...CATEGORIES.filter((c) => BOOKING_CATEGORIES.includes(c.id) && !BOOKING_TYPE_CHOICES.some((t) => t.id === c.id)),
+]
 
 /**
- * قسم مخصص لحجز الذبائح والأضاحي والولائم والإعاشة.
- * يعرض الأصناف المخصصة للمطبخ (أو المشتركة بين المطعم والمطبخ)، ويختار العميل نوع الذبيحة/الوليمة
- * وطريقة الطبخ ونوع التقطيع وطريقة التفصيل والكمية، ثم يضيفها إلى السلة الموحدة،
- * ليحدد تاريخ ووقت التسليم عند إتمام الطلب.
+ * قسم المطبخ المخصص لحجز الذبائح والأضاحي والولائم والإعاشة (منيو المطبخ).
+ * يختار العميل التصنيف (ذبيحة / وليمة / زواج / أضحية) ثم نوع الذبيحة وطريقة الطبخ ونوع التقطيع
+ * وطريقة التفصيل والكمية، ثم يضيفها إلى السلة الموحدة، ليحدد تاريخ ووقت التسليم عند إتمام الطلب.
  */
 export function BookingPanel({
   menu,
   onAdd,
+  initialCategory,
 }: {
   menu: MenuItem[]
   onAdd: (itemId: string, options: string, qty: number) => void
+  initialCategory?: CategoryId
 }) {
+  const [type, setType] = useState<CategoryId>(
+    initialCategory && TYPE_CHOICES.some((t) => t.id === initialCategory) ? initialCategory : TYPE_CHOICES[0].id,
+  )
   const items = useMemo(
-    () => menu.filter((m) => m.active && KITCHEN_SECTIONS.includes(m.menuSection) && BOOKING_CATEGORIES.includes(m.category)),
-    [menu],
+    () => menu.filter((m) => m.active && KITCHEN_SECTIONS.includes(m.menuSection) && m.category === type),
+    [menu, type],
   )
   const [itemId, setItemId] = useState('')
   const [cooking, setCooking] = useState<string>(COOKING_STYLES[0])
@@ -44,6 +57,12 @@ export function BookingPanel({
   const price = selected ? effectivePrice(selected) : 0
   const needsCutting = selected ? SLAUGHTER_CATEGORIES.includes(selected.category) : false
   const details = needsCutting ? `${cooking} · ${cut} · تفصيل: ${cutting}` : `${cooking} · ${cut}`
+
+  function pickType(id: CategoryId) {
+    setType(id)
+    setItemId('')
+    setAdded(false)
+  }
 
   function add() {
     if (!selected) return
@@ -58,29 +77,41 @@ export function BookingPanel({
       <Card className="flex flex-col gap-4 p-5">
         <div className="flex items-center gap-2">
           <CalendarClock className="size-5 text-primary" aria-hidden="true" />
-          <h2 className="font-heading text-lg font-bold">حجز ذبيحتك أو وليمتك</h2>
+          <h2 className="font-heading text-lg font-bold">منيو المطبخ وحجز ذبيحتك أو وليمتك</h2>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          اختر نوع الذبيحة أو الأضحية أو الوليمة وطريقة الطبخ ونوع التقطيع وطريقة التفصيل والكمية، ثم أضفها إلى السلة.
-          سيُطلب منك تحديد تاريخ ووقت التسليم عند إتمام الطلب.
+          اختر التصنيف (ذبيحة، وليمة، زواج، أضحية) ثم نوع الذبيحة وطريقة الطبخ ونوع التقطيع وطريقة التفصيل والكمية،
+          وأضفها إلى السلة. سيُطلب منك تحديد تاريخ ووقت التسليم عند إتمام الطلب.
         </p>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">التصنيف</span>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="تصنيف الحجز">
+            {TYPE_CHOICES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                aria-pressed={type === t.id}
+                onClick={() => pickType(t.id)}
+                className={cn(
+                  'rounded-full border px-4 py-2 text-sm font-medium transition',
+                  type === t.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-muted',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <Field label="نوع الذبيحة أو الوليمة">
           <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
             <option value="">اختر النوع</option>
-            {CATEGORIES.filter((c) => BOOKING_CATEGORIES.includes(c.id)).map((cat) => {
-              const group = items.filter((m) => m.category === cat.id)
-              if (group.length === 0) return null
-              return (
-                <optgroup key={cat.id} label={cat.label}>
-                  {group.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} - {sar(effectivePrice(m))}
-                    </option>
-                  ))}
-                </optgroup>
-              )
-            })}
+            {items.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} - {sar(effectivePrice(m))}
+              </option>
+            ))}
           </Select>
         </Field>
 
@@ -145,7 +176,7 @@ export function BookingPanel({
 
         {items.length === 0 && (
           <p className="rounded-lg bg-accent/20 px-3 py-2 text-xs leading-relaxed">
-            لا توجد أنواع متاحة للحجز حاليًا، يرجى المحاولة لاحقًا أو التواصل معنا هاتفيًا.
+            لا توجد أنواع متاحة في هذا التصنيف حاليًا، اختر تصنيفًا آخر أو تواصل معنا هاتفيًا.
           </p>
         )}
       </Card>

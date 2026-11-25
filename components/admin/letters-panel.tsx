@@ -1,20 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FilePlus2, PenLine, Printer, Save, Trash2 } from 'lucide-react'
+import { FilePlus2, Mail, MessageCircle, PenLine, Printer, RotateCcw, Save, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, Field, Input, Notice, Select, Textarea } from '@/components/ui/fields'
 import { Barcode } from '@/components/documents/barcode'
 import { SignaturePad } from '@/components/documents/signature-pad'
 import { apiSend, useCollection, useSettings } from '@/lib/client'
-import { formatDate } from '@/lib/format'
+import { formatDate, toInternationalPhone } from '@/lib/format'
 import { LETTER_TYPES, RECIPIENT_TITLES, SIGNER_ROLES, type Letter, type LetterType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type Draft = Omit<Letter, 'id' | 'createdAt'> & { id?: string }
 
+/** وسائل إرسال/طباعة الخطاب التي تُسجَّل عند الأرشفة. */
+type SendVia = 'print' | 'email' | 'whatsapp'
+
 /** مفتاح التوقيع المحفوظ في ملف صاحب الصلاحية على هذا الجهاز. */
 const SIGNATURE_KEY = 'wadidoan:saved-signature'
+
+const EMPTY_FILTERS = { number: '', date: '', title: '', recipient: '', type: '' }
 
 const blank = (): Draft => ({
   type: 'letter',
@@ -39,6 +44,7 @@ export function LettersPanel() {
   const [msg, setMsg] = useState('')
   const [nextNumber, setNextNumber] = useState('')
   const [savedSignature, setSavedSignature] = useState('')
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
 
   // الترقيم الإلكتروني السنوي: نعرض الرقم المتوقع من الخادم قبل الحفظ.
   useEffect(() => {
@@ -61,6 +67,15 @@ export function LettersPanel() {
   }, [])
 
   const list = (letters ?? []).filter((l) => (view === 'templates' ? l.isTemplate : !l.isTemplate))
+  // الاستعلام عن الخطابات: فلترة متقدمة (رقم/تاريخ/موضوع/جهة/نوع).
+  const filtered = list.filter((l) => {
+    if (filters.number && !(l.number ?? '').includes(filters.number.trim())) return false
+    if (filters.date && l.date !== filters.date) return false
+    if (filters.title && !l.title.includes(filters.title.trim())) return false
+    if (filters.recipient && !l.recipient.includes(filters.recipient.trim())) return false
+    if (filters.type && l.type !== filters.type) return false
+    return true
+  })
   const docNumber = draft.number || nextNumber || '—'
   const barcodeValue = [draft.number || nextNumber, draft.date].filter(Boolean).join('|')
 
@@ -82,6 +97,62 @@ export function LettersPanel() {
     }
     await mutate()
     setMsg(asTemplate ? 'تم حفظ القالب' : 'تمت الأرشفة')
+  }
+
+  /**
+   * يضمن أرشفة الخطاب في قاعدة البيانات ويولّد رقم صادر تسلسليًا سنويًا (عند غيابه)،
+   * ويسجّل وسيلة الإرسال/الطباعة ووقتها — تُستدعى تلقائيًا عند الطباعة أو الإرسال.
+   */
+  async function archiveLetter(via: SendVia): Promise<Letter | null> {
+    if (!draft.title.trim() || !draft.body.trim()) {
+      setMsg('العنوان ونص الخطاب مطلوبان')
+      return null
+    }
+    const body = {
+      ...draft,
+      isTemplate: false,
+      number: draft.number || nextNumber,
+      sentVia: via,
+      sentAt: new Date().toISOString(),
+    } satisfies Draft
+    const saved =
+      draft.id && !draft.isTemplate
+        ? await apiSend<Letter>(`/api/db/letters/${draft.id}`, 'PATCH', body)
+        : await apiSend<Letter>('/api/db/letters', 'POST', body)
+    setDraft({ ...saved })
+    await mutate()
+    return saved
+  }
+
+  /** الطباعة: تُؤرشف الخطاب أولًا ثم تُفتح نافذة الطباعة (يمكن الحفظ بصيغة PDF). */
+  async function printLetter() {
+    setMsg('')
+    const saved = await archiveLetter('print')
+    if (!saved) return
+    setMsg(`تمت أرشفة الخطاب برقم صادر ${saved.number}`)
+    window.print()
+  }
+
+  /** الإرسال عبر البريد الإلكتروني: أرشفة + فتح رسالة جاهزة بالمحتوى. */
+  async function sendByEmail() {
+    setMsg('')
+    const saved = await archiveLetter('email')
+    if (!saved) return
+    const subject = `خطاب رقم ${saved.number} - ${saved.title}`
+    const text = `${saved.title}\n\n${saved.body}\n\n—\n${settings?.name ?? ''}`
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`
+    setMsg(`تمت الأرشفة (${saved.number}) — أرفق ملف PDF المحفوظ ثم أرسل`)
+  }
+
+  /** الإرسال عبر واتساب: أرشفة + فتح محادثة واتساب بنص الخطاب. */
+  async function sendByWhatsapp() {
+    setMsg('')
+    const saved = await archiveLetter('whatsapp')
+    if (!saved) return
+    const text = `خطاب رقم ${saved.number}\n${saved.title}\n\n${saved.body}`
+    const phone = toInternationalPhone(settings?.whatsapp ?? '')
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank')
+    setMsg(`تمت الأرشفة (${saved.number}) — أرفق ملف PDF في محادثة واتساب`)
   }
 
   return (
@@ -185,11 +256,23 @@ export function LettersPanel() {
             <Button size="lg" variant="outline" onClick={() => save(true)}>
               حفظ كقالب
             </Button>
-            <Button size="lg" variant="secondary" onClick={() => window.print()}>
+            <Button size="lg" variant="secondary" onClick={printLetter}>
               <Printer aria-hidden="true" />
-              طباعة
+              طباعة / PDF
+            </Button>
+            <Button size="lg" variant="secondary" onClick={sendByEmail}>
+              <Mail aria-hidden="true" />
+              إرسال بالبريد
+            </Button>
+            <Button size="lg" variant="secondary" onClick={sendByWhatsapp}>
+              <MessageCircle aria-hidden="true" />
+              إرسال واتساب
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            عند الطباعة أو الإرسال يُؤرشف الخطاب تلقائيًا في قاعدة البيانات ويُولَّد له رقم صادر تسلسلي سنوي.
+            لحفظ الخطاب بصيغة PDF اختر «حفظ كـ PDF» من نافذة الطباعة.
+          </p>
         </Card>
 
         <Card className="flex flex-col gap-3 p-5">
@@ -207,9 +290,66 @@ export function LettersPanel() {
               </button>
             ))}
           </div>
-          {list.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">لا يوجد شيء هنا بعد</p>}
+
+          {view === 'archive' && (
+            <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <Search className="size-4" aria-hidden="true" />
+                  الاستعلام عن الخطابات
+                </span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>
+                  <RotateCcw aria-hidden="true" />
+                  مسح
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="رقم الخطاب">
+                  <Input
+                    dir="ltr"
+                    value={filters.number}
+                    onChange={(e) => setFilters({ ...filters, number: e.target.value })}
+                    placeholder="2026/001"
+                  />
+                </Field>
+                <Field label="التاريخ">
+                  <Input
+                    type="date"
+                    value={filters.date}
+                    onChange={(e) => setFilters({ ...filters, date: e.target.value })}
+                  />
+                </Field>
+                <Field label="الموضوع">
+                  <Input
+                    value={filters.title}
+                    onChange={(e) => setFilters({ ...filters, title: e.target.value })}
+                    placeholder="جزء من عنوان الخطاب"
+                  />
+                </Field>
+                <Field label="الجهة المرسل إليها">
+                  <Input
+                    value={filters.recipient}
+                    onChange={(e) => setFilters({ ...filters, recipient: e.target.value })}
+                    placeholder="اسم الجهة"
+                  />
+                </Field>
+                <Field label="نوع الخطاب">
+                  <Select value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })}>
+                    <option value="">الكل</option>
+                    {LETTER_TYPES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            </div>
+          )}
+
+          {filtered.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">لا يوجد شيء هنا بعد</p>}
           <ul className="flex flex-col divide-y">
-            {list.map((l) => (
+            {filtered.map((l) => (
               <li key={l.id} className="flex items-center justify-between gap-2 py-2">
                 <button
                   type="button"
@@ -280,12 +420,9 @@ export function LettersPanel() {
                 )}
               </div>
 
-              {/* العمود الأيسر: ملصق الصادر (Sticker) مع الباركود */}
+              {/* العمود الأيسر: ملصق الرقم والتاريخ مع الباركود */}
               <div className="flex flex-1 justify-end">
                 <div className="w-full max-w-[64mm] rounded-md border-2 border-neutral-800/80 bg-neutral-50 p-2">
-                  <p className="mb-1.5 border-b border-neutral-300 pb-1 text-center text-[10px] font-bold tracking-wider text-neutral-700">
-                    ملصق الصادر
-                  </p>
                   <dl className="space-y-0.5 text-[11px] leading-relaxed">
                     <div className="flex items-center justify-between gap-2">
                       <dt className="font-semibold text-neutral-600">الرقم</dt>
@@ -296,10 +433,6 @@ export function LettersPanel() {
                     <div className="flex items-center justify-between gap-2">
                       <dt className="font-semibold text-neutral-600">التاريخ</dt>
                       <dd className="font-bold text-neutral-900">{draft.date ? formatDate(draft.date) : '—'}</dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <dt className="font-semibold text-neutral-600">المرفقات</dt>
-                      <dd className="max-w-[60%] truncate text-neutral-900">{draft.attachments || 'لا يوجد'}</dd>
                     </div>
                   </dl>
                   {barcodeValue && <Barcode value={barcodeValue} fluid height={30} className="mt-1.5" />}

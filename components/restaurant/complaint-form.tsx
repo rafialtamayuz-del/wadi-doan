@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, Field, Input, Notice, Textarea } from '@/components/ui/fields'
+import { Card, Field, Input, Notice, Select, Textarea } from '@/components/ui/fields'
 import { apiSend } from '@/lib/client'
-import type { Complaint } from '@/lib/types'
+import { COMPLAINT_TYPES, type Complaint } from '@/lib/types'
 
 export function ComplaintForm() {
   const [sent, setSent] = useState<Complaint | null>(null)
@@ -22,6 +22,7 @@ export function ComplaintForm() {
           phone: form.get('phone'),
           orderNumber: form.get('orderNumber'),
           message: form.get('message'),
+          type: form.get('type'),
         }),
       )
     } catch (e) {
@@ -47,9 +48,18 @@ export function ComplaintForm() {
 
   return (
     <Card className="mx-auto max-w-xl p-6">
-      <h2 className="mb-1 font-heading text-xl font-bold">الشكاوى والملاحظات</h2>
+      <h2 className="mb-1 font-heading text-xl font-bold">الشكاوى والمقترحات</h2>
       <p className="mb-5 text-sm text-muted-foreground">رأيك يهمنا، تصل رسالتك مباشرة إلى صاحب المشروع.</p>
       <form action={submit} className="flex flex-col gap-4">
+        <Field label="نوع الرسالة">
+          <Select name="type" required defaultValue="complaint">
+            {COMPLAINT_TYPES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="الاسم">
             <Input name="name" required minLength={2} />
@@ -61,7 +71,7 @@ export function ComplaintForm() {
         <Field label="رقم الطلب (اختياري)">
           <Input name="orderNumber" inputMode="numeric" />
         </Field>
-        <Field label="الملاحظة أو الشكوى">
+        <Field label="نص الشكوى أو المقترح">
           <Textarea name="message" required minLength={5} maxLength={2000} />
         </Field>
         {error && <Notice>{error}</Notice>}

@@ -148,7 +148,17 @@ export function CheckoutForm({
         payment: { method, receipt: method === 'bank' ? receipt : undefined },
       })
       onDone()
-      router.push(`/invoice/${order.id}`)
+      // طلب الطاولة المدفوع إلكترونيًا: يُغلق الطاولة تلقائيًا ويعرض شاشة تقييم الخدمة للعميل.
+      if (table && ELECTRONIC.includes(method as PaymentMethod)) {
+        try {
+          await apiSend('/api/tables', 'POST', { action: 'pay', table: Number(table), orderId: order.id })
+        } catch {
+          // نتجاهل تعذّر إغلاق الطاولة ونكمل إلى شاشة التقييم.
+        }
+        router.push(`/rating?order=${order.id}&table=${table}`)
+      } else {
+        router.push(`/invoice/${order.id}`)
+      }
     } catch (e) {
       setError((e as Error).message)
       setSubmitting(false)
@@ -290,7 +300,9 @@ export function CheckoutForm({
       </div>
       {type === 'dinein' && (
         <p className="rounded-lg bg-accent/20 px-3 py-2 text-xs leading-relaxed">
-          الطلب المحلي داخل المطعم: إدخال الاسم ورقم الجوال اختياري، ويتم الدفع عند المحاسبة.
+          {table
+            ? 'طلب من طاولة: إدخال الاسم ورقم الجوال اختياري. عند الدفع الإلكتروني تُغلق الطاولة تلقائيًا وتظهر لك شاشة تقييم الخدمة.'
+            : 'الطلب المحلي داخل المطعم: إدخال الاسم ورقم الجوال اختياري، ويتم الدفع عند المحاسبة.'}
         </p>
       )}
 

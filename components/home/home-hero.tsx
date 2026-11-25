@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { CalendarCheck, UtensilsCrossed } from 'lucide-react'
-import type { Settings } from '@/lib/types'
+import { BOOKING_TYPE_CHOICES, type Settings } from '@/lib/types'
 
 export function HomeHero({ settings }: { settings: Settings }) {
   return (
@@ -40,6 +40,19 @@ export function HomeHero({ settings }: { settings: Settings }) {
             <CalendarCheck className="size-5" aria-hidden="true" />
             احجز ذبيحتك أو وليمتك
           </Link>
+        </div>
+        {/* خيارات التصنيف المباشرة للانتقال إلى منيو المطبخ بالخيار المطلوب. */}
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="تصنيفات الحجز السريع">
+          <span className="text-sm font-medium text-white/80">تصنيف الحجز:</span>
+          {BOOKING_TYPE_CHOICES.map((t) => (
+            <Link
+              key={t.id}
+              href={`/restaurant?tab=booking&cat=${t.id}`}
+              className="rounded-full border border-white/40 bg-white/10 px-4 py-1.5 text-sm font-medium backdrop-blur transition hover:bg-white/20"
+            >
+              {t.label}
+            </Link>
+          ))}
         </div>
       </div>
     </section>

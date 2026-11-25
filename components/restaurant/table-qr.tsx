@@ -31,7 +31,8 @@ export function TableQr() {
           طباعة الرموز
         </Button>
         <p className="w-full text-sm text-muted-foreground">
-          يمسح العميل الرمز فيفتح المنيو مع تحديد رقم الطاولة تلقائيًا في الطلب.
+          يمسح العميل الرمز فيفتح المنيو مرتبطًا برقم الطاولة مع إمكانية الدفع الإلكتروني. بعد نجاح الدفع تُغلق الطاولة
+          تلقائيًا وتظهر للعميل شاشة تقييم الخدمة.
         </p>
       </Card>
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">

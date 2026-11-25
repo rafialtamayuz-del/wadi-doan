@@ -28,7 +28,7 @@ import { ComplaintsPanel } from './complaints-panel'
 const SECTIONS = [
   { id: 'overview', label: 'نظرة عامة وتقارير', icon: BarChart3, Panel: OverviewPanel },
   { id: 'orders', label: 'متابعة الطلبات', icon: ClipboardList, Panel: OrdersPanel },
-  { id: 'complaints', label: 'الشكاوى', icon: MessageSquareWarning, Panel: ComplaintsPanel },
+  { id: 'complaints', label: 'الشكاوى والمقترحات', icon: MessageSquareWarning, Panel: ComplaintsPanel },
   { id: 'menu', label: 'المنيو والأصناف', icon: UtensilsCrossed, Panel: MenuPanel },
   { id: 'zones', label: 'أحياء ورسوم التوصيل', icon: MapPinned, Panel: ZonesPanel },
   { id: 'purchases', label: 'المشتريات', icon: Receipt, Panel: PurchasesPanel },

@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Search, ShoppingBag } from 'lucide-react'
-import { useCollection } from '@/lib/client'
+import { apiSend, useCollection } from '@/lib/client'
 import { effectivePrice, sar } from '@/lib/format'
-import { BOOKING_CATEGORIES, CATEGORIES, RESTAURANT_SECTIONS, type CategoryId, type MenuItem } from '@/lib/types'
+import { BOOKING_CATEGORIES, RESTAURANT_SECTIONS, type CategoryId, type MenuItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/fields'
 import { MenuItemCard } from './menu-item-card'
@@ -15,33 +15,57 @@ import { TrackPanel } from './track-panel'
 import { ComplaintForm } from './complaint-form'
 import { TableQr } from './table-qr'
 
-const TABS = [
-  { id: 'booking', label: 'حجز الأضاحي والذبائح والولائم' },
-  { id: 'menu', label: 'منيو المطعم والطلب' },
-  { id: 'track', label: 'تتبع الطلب' },
-  { id: 'complaint', label: 'الشكاوى والملاحظات' },
-  { id: 'qr', label: 'رموز QR للطاولات' },
-] as const
-type TabId = (typeof TABS)[number]['id']
+type TabId = 'menu' | 'iftar' | 'appetizers' | 'drinks' | 'booking' | 'track' | 'complaint' | 'qr'
 
-// المنيو الفوري يشمل أطباق المطعم والمقبلات والمشروبات وإفطار صائم فقط، أما الذبائح والولائم فلها قسم حجز مخصص.
-const MENU_CATEGORIES = CATEGORIES.filter((c) => !BOOKING_CATEGORIES.includes(c.id))
+// تبويبات منيو المطعم الرئيسية تظهر بوضوح حسب الأقسام المطلوبة.
+const MENU_TABS: { id: TabId; label: string; cat: CategoryId }[] = [
+  { id: 'menu', label: 'منيو المطعم', cat: 'restaurant' },
+  { id: 'iftar', label: 'إفطار صائم', cat: 'iftar' },
+  { id: 'appetizers', label: 'المقبلات', cat: 'appetizers' },
+  { id: 'drinks', label: 'المشروبات', cat: 'drinks' },
+]
+
+const TABS: { id: TabId; label: string }[] = [
+  ...MENU_TABS.map(({ id, label }) => ({ id, label })),
+  { id: 'booking', label: 'المطبخ وحجز الذبائح والولائم' },
+  { id: 'track', label: 'تتبع الطلب' },
+  { id: 'complaint', label: 'الشكاوى والمقترحات' },
+  { id: 'qr', label: 'رموز QR للطاولات' },
+]
+
+/** يربط تصنيف الرابط الرئيسي (cat) بالتبويب المقابل له. */
+const MENU_TAB_BY_CAT: Record<string, TabId> = {
+  restaurant: 'menu',
+  iftar: 'iftar',
+  appetizers: 'appetizers',
+  drinks: 'drinks',
+}
 
 export function RestaurantApp() {
   const params = useSearchParams()
   const table = params.get('table') ?? ''
   const paramTab = params.get('tab')
-  const initialCat = params.get('cat')
-  const [tab, setTab] = useState<TabId>(
-    paramTab === 'booking' || (initialCat && BOOKING_CATEGORIES.includes(initialCat as CategoryId)) ? 'booking' : 'menu',
-  )
-  const [category, setCategory] = useState<CategoryId | 'all'>(
-    MENU_CATEGORIES.some((c) => c.id === initialCat) ? (initialCat as CategoryId) : 'all',
-  )
+  const initialCat = params.get('cat') as CategoryId | null
+  const [tab, setTab] = useState<TabId>(() => {
+    if (paramTab === 'booking') return 'booking'
+    if (initialCat) {
+      return MENU_TAB_BY_CAT[initialCat] ?? (BOOKING_CATEGORIES.includes(initialCat) ? 'booking' : 'menu')
+    }
+    return 'menu'
+  })
   const [query, setQuery] = useState('')
   const [cart, setCart] = useState<Record<string, CartLine>>({})
   const [cartOpen, setCartOpen] = useState(false)
   const { data: menu, isLoading } = useCollection<MenuItem>('menu', 15000)
+
+  // عند فتح رابط باركود الطاولة نعلّم الطاولة «مشغولة» في النظام.
+  useEffect(() => {
+    const tableNo = Number(table)
+    if (!table || !Number.isInteger(tableNo) || tableNo <= 0) return
+    void apiSend('/api/tables', 'POST', { action: 'open', table: tableNo }).catch(() => {})
+  }, [table])
+
+  const activeMenuTab = MENU_TABS.find((t) => t.id === tab)
 
   const visible = useMemo(
     () =>
@@ -50,10 +74,10 @@ export function RestaurantApp() {
           m.active &&
           RESTAURANT_SECTIONS.includes(m.menuSection) &&
           !BOOKING_CATEGORIES.includes(m.category) &&
-          (category === 'all' || m.category === category) &&
+          (!activeMenuTab || m.category === activeMenuTab.cat) &&
           (!query.trim() || m.name.includes(query.trim()) || m.description.includes(query.trim())),
       ),
-    [menu, category, query],
+    [menu, activeMenuTab, query],
   )
 
   /** يضبط كمية صنف في السلة (يُستخدم للمنيو والسلة معًا). */
@@ -89,7 +113,7 @@ export function RestaurantApp() {
   const cartPanel = (
     <CartPanel lines={lines} setQty={setQty} clear={() => setCart({})} table={table} onClose={() => setCartOpen(false)} />
   )
-  const showCart = tab === 'menu' || tab === 'booking'
+  const showCart = Boolean(activeMenuTab) || tab === 'booking'
 
   return (
     <main className="mx-auto max-w-7xl px-4 pb-28 pt-6 lg:pb-10">
@@ -123,9 +147,13 @@ export function RestaurantApp() {
 
       {showCart && (
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-          <section aria-label={tab === 'booking' ? 'حجز الأضاحي والذبائح والولائم' : 'المنيو'} className="flex flex-col gap-5">
+          <section aria-label={tab === 'booking' ? 'حجز الذبائح والولائم' : activeMenuTab?.label} className="flex flex-col gap-5">
             {tab === 'booking' ? (
-              <BookingPanel menu={menu ?? []} onAdd={addBooking} />
+              <BookingPanel
+                menu={menu ?? []}
+                onAdd={addBooking}
+                initialCategory={initialCat && BOOKING_CATEGORIES.includes(initialCat) ? initialCat : undefined}
+              />
             ) : (
               <>
                 <div className="relative">
@@ -134,31 +162,15 @@ export function RestaurantApp() {
                     type="search"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="ابحث عن طبق..."
+                    placeholder={`ابحث في ${activeMenuTab?.label ?? 'المنيو'}...`}
                     aria-label="ابحث في المنيو"
                     className="h-11 pr-9"
                   />
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="التصنيفات">
-                  {[{ id: 'all' as const, label: 'الكل' }, ...MENU_CATEGORIES].map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      aria-pressed={category === c.id}
-                      onClick={() => setCategory(c.id)}
-                      className={cn(
-                        'shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition',
-                        category === c.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:bg-muted',
-                      )}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
                 {isLoading ? (
                   <p className="py-10 text-center text-muted-foreground">جارٍ تحميل المنيو...</p>
                 ) : visible.length === 0 ? (
-                  <p className="py-10 text-center text-muted-foreground">لا توجد أصناف مطابقة</p>
+                  <p className="py-10 text-center text-muted-foreground">لا توجد أصناف في هذا القسم حاليًا</p>
                 ) : (
                   <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {visible.map((item) => (
