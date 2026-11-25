@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js'
-import { normalizePermissions } from './permissions'
+import { normalizePermissions, ROLE_DEFAULT_PERMISSIONS } from './permissions'
 import { isStaffRole, normalizeUsername, roleFromUser } from './roles'
 import { getCurrentUser } from './supabase/server'
 import type { StaffAccount, StaffAccountRole } from './types'
@@ -39,7 +39,10 @@ export function toStaffAccount(u: User): StaffAccount {
     username: String(meta.username ?? email.split('@')[0] ?? ''),
     phone: String(meta.phone ?? ''),
     role,
-    permissions: normalizePermissions(meta.permissions),
+    // تُعرض الصلاحيات المخصّصة إن وُجدت، وإلا الافتراضية المرتبطة بالدور الوظيفي.
+    permissions: Array.isArray(meta.permissions)
+      ? normalizePermissions(meta.permissions)
+      : ROLE_DEFAULT_PERMISSIONS[role],
     createdAt: u.created_at,
     lastSignInAt: u.last_sign_in_at ?? undefined,
   }

@@ -32,13 +32,16 @@ export async function POST(req: Request, { params }: Ctx) {
       const name = String(body.name ?? '').trim().slice(0, 80)
       const phone = String(body.phone ?? '').trim().slice(0, 20)
       const message = String(body.message ?? '').trim().slice(0, 2000)
+      // نوع الرسالة إلزامي: شكوى أو اقتراح.
+      const type = body.type === 'suggestion' ? 'suggestion' : 'complaint'
       if (name.length < 2 || !/^[+0-9\s]{9,15}$/.test(phone) || message.length < 5) {
-        return Response.json({ error: 'يرجى إدخال الاسم ورقم جوال صحيح ونص الشكوى' }, { status: 400 })
+        return Response.json({ error: 'يرجى إدخال الاسم ورقم جوال صحيح ونص الرسالة' }, { status: 400 })
       }
       const record = await createRecord('complaints', {
         name,
         phone,
         message,
+        type,
         orderNumber: String(body.orderNumber ?? '').trim().slice(0, 12),
         reply: '',
         status: 'open',

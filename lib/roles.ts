@@ -1,4 +1,16 @@
-export type StaffRole = 'owner' | 'kitchen' | 'staff'
+export type StaffRole =
+  | 'owner'
+  | 'restaurant_manager'
+  | 'restaurant_supervisor'
+  | 'kitchen_manager'
+  | 'kitchen_supervisor'
+  | 'kitchen'
+  | 'staff'
+
+/** الأدوار التي تعمل في قسم المطعم. */
+export const RESTAURANT_ROLES: StaffRole[] = ['owner', 'restaurant_manager', 'restaurant_supervisor', 'staff']
+/** الأدوار التي تعمل في قسم المطبخ. */
+export const KITCHEN_ROLES: StaffRole[] = ['owner', 'kitchen_manager', 'kitchen_supervisor', 'kitchen']
 
 /** نطاق البريد الداخلي المشتق من اسم المستخدم (رقم الجوال أو الهوية) لحسابات الموظفين. */
 export const STAFF_EMAIL_DOMAIN = 'staff.wadidoan.sa'
@@ -30,15 +42,19 @@ export function loginIdToEmail(value: string): string {
 /** الصفحة الرئيسية لكل دور بعد تسجيل الدخول. */
 export const ROLE_HOME: Record<StaffRole, string> = {
   owner: '/admin',
+  restaurant_manager: '/staff',
+  restaurant_supervisor: '/staff',
+  kitchen_manager: '/kitchen',
+  kitchen_supervisor: '/kitchen',
   kitchen: '/kitchen',
   staff: '/staff',
 }
 
 /** المسارات المحمية والأدوار المسموح لها بالدخول إليها. */
 export const PROTECTED_ROUTES: { prefix: string; roles: StaffRole[] }[] = [
-  { prefix: '/account', roles: ['owner', 'kitchen', 'staff'] },
-  { prefix: '/staff', roles: ['staff', 'owner'] },
-  { prefix: '/kitchen', roles: ['kitchen', 'owner'] },
+  { prefix: '/account', roles: ['owner', 'restaurant_manager', 'restaurant_supervisor', 'kitchen_manager', 'kitchen_supervisor', 'kitchen', 'staff'] },
+  { prefix: '/staff', roles: ['staff', 'restaurant_manager', 'restaurant_supervisor', 'owner'] },
+  { prefix: '/kitchen', roles: ['kitchen', 'kitchen_manager', 'kitchen_supervisor', 'owner'] },
   { prefix: '/admin', roles: ['owner'] },
 ]
 
@@ -47,8 +63,18 @@ type UserLike =
   | null
   | undefined
 
+const STAFF_ROLES: StaffRole[] = [
+  'owner',
+  'restaurant_manager',
+  'restaurant_supervisor',
+  'kitchen_manager',
+  'kitchen_supervisor',
+  'kitchen',
+  'staff',
+]
+
 export function isStaffRole(value: unknown): value is StaffRole {
-  return value === 'owner' || value === 'kitchen' || value === 'staff'
+  return typeof value === 'string' && (STAFF_ROLES as string[]).includes(value)
 }
 
 /** يستخرج الدور من بيانات مستخدم Supabase Auth، والافتراضي «صاحب المشروع» للحسابات القديمة. */

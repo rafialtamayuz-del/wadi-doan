@@ -6,24 +6,34 @@ export type CategoryId =
   | 'adhahi'
   | 'dhabh'
   | 'walaem'
+  | 'wedding'
   | 'eaasha'
   | 'iftar'
   | 'appetizers'
   | 'drinks'
 
 export const CATEGORIES: { id: CategoryId; label: string }[] = [
-  { id: 'restaurant', label: 'أطباق المطعم' },
+  { id: 'restaurant', label: 'منيو المطعم' },
   { id: 'thabaeh', label: 'الذبائح' },
   { id: 'adhahi', label: 'الأضاحي' },
   { id: 'dhabh', label: 'الذبح' },
   { id: 'walaem', label: 'الولائم' },
+  { id: 'wedding', label: 'زواج' },
   { id: 'eaasha', label: 'الإعاشة' },
   { id: 'iftar', label: 'إفطار صائم' },
   { id: 'appetizers', label: 'المقبلات' },
   { id: 'drinks', label: 'المشروبات' },
 ]
 
-export const BOOKING_CATEGORIES: CategoryId[] = ['thabaeh', 'adhahi', 'dhabh', 'walaem', 'eaasha']
+export const BOOKING_CATEGORIES: CategoryId[] = ['thabaeh', 'adhahi', 'dhabh', 'walaem', 'wedding', 'eaasha']
+
+/** خيارات التصنيف الرئيسية لحجز الذبائح والولائم (ذبيحة / وليمة / زواج / أضحية). */
+export const BOOKING_TYPE_CHOICES: { id: CategoryId; label: string }[] = [
+  { id: 'thabaeh', label: 'ذبيحة' },
+  { id: 'walaem', label: 'وليمة' },
+  { id: 'wedding', label: 'زواج' },
+  { id: 'adhahi', label: 'أضحية' },
+]
 
 /** التصنيفات التي تحتاج تحديد طريقة التفصيل (الذبائح والأضاحي والذبح). */
 export const SLAUGHTER_CATEGORIES: CategoryId[] = ['thabaeh', 'adhahi', 'dhabh']
@@ -156,15 +166,31 @@ export interface Order {
   pickupCode?: string
 }
 
+/** نوع رسالة الشكاوى والمقترحات. */
+export type ComplaintType = 'complaint' | 'suggestion'
+export const COMPLAINT_TYPES: { id: ComplaintType; label: string }[] = [
+  { id: 'complaint', label: 'شكوى' },
+  { id: 'suggestion', label: 'اقتراح' },
+]
+
 export interface Complaint {
   id: string
   createdAt: string
+  type: ComplaintType
   orderNumber?: string
   name: string
   phone: string
   message: string
   reply: string
   status: 'open' | 'resolved'
+}
+
+/** سطر تفريغ أصناف فاتورة المشتريات. */
+export interface PurchaseLine {
+  name: string
+  qty: number
+  price: number
+  group: string
 }
 
 export interface Purchase {
@@ -174,6 +200,7 @@ export interface Purchase {
   invoiceNo: string
   date: string
   amount: number
+  lines: PurchaseLine[]
   image?: string
   notes?: string
 }
@@ -206,6 +233,10 @@ export interface Letter {
   signerName: string
   signature: string
   isTemplate: boolean
+  /** وسيلة الإرسال الأخيرة: email / whatsapp / print (تُملأ تلقائيًا عند الإرسال أو الطباعة). */
+  sentVia?: string
+  /** وقت آخر إرسال أو طباعة. */
+  sentAt?: string
 }
 
 export interface BankAccount {
@@ -229,12 +260,23 @@ export interface BusinessLocation {
 
 /* ------------------------- الموظفون والصلاحيات ------------------------- */
 
-export type StaffAccountRole = 'owner' | 'kitchen' | 'staff'
+export type StaffAccountRole =
+  | 'owner'
+  | 'restaurant_manager'
+  | 'restaurant_supervisor'
+  | 'kitchen_manager'
+  | 'kitchen_supervisor'
+  | 'kitchen'
+  | 'staff'
 
-export const STAFF_ACCOUNT_ROLES: { id: StaffAccountRole; label: string }[] = [
-  { id: 'owner', label: 'صاحب المشروع' },
-  { id: 'staff', label: 'موظف المطعم' },
-  { id: 'kitchen', label: 'موظف المطبخ' },
+export const STAFF_ACCOUNT_ROLES: { id: StaffAccountRole; label: string; home: 'admin' | 'staff' | 'kitchen' }[] = [
+  { id: 'owner', label: 'صاحب المشروع', home: 'admin' },
+  { id: 'restaurant_manager', label: 'مدير مطعم', home: 'staff' },
+  { id: 'restaurant_supervisor', label: 'مشرف مطعم', home: 'staff' },
+  { id: 'kitchen_manager', label: 'مدير مطبخ', home: 'kitchen' },
+  { id: 'kitchen_supervisor', label: 'مشرف مطبخ', home: 'kitchen' },
+  { id: 'staff', label: 'موظف المطعم', home: 'staff' },
+  { id: 'kitchen', label: 'موظف المطبخ', home: 'kitchen' },
 ]
 
 export interface StaffAccount {

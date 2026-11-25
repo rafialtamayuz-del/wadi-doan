@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { connection } from 'next/server'
 import { getOrder } from '@/lib/data'
 import { formatDateTime } from '@/lib/format'
 import { ORDER_TYPES } from '@/lib/types'
 import { PrintButton } from '@/components/print-button'
+import { ReadyQr } from '@/components/kitchen/ready-qr'
 
 export const metadata: Metadata = { title: 'بون المطبخ', robots: { index: false } }
 
@@ -16,6 +18,12 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
 
   // الطلب الإلكتروني عند طباعة البون ينتقل تلقائيًا إلى «قيد التجهيز».
   const prepareOrderId = order.type !== 'dinein' && order.status === 'new' ? order.id : undefined
+
+  // الأصل (origin) لبناء رابط الباركود الذي يفتحه جوال الطاقم لتحديث الحالة إلى «جاهز».
+  const h = await headers()
+  const host = h.get('x-forwarded-host') ?? h.get('host') ?? ''
+  const proto = h.get('x-forwarded-proto') ?? 'https'
+  const origin = host ? `${proto}://${host}` : ''
 
   return (
     <main className="mx-auto flex max-w-xs flex-col gap-3 p-4 font-mono text-sm">
@@ -55,6 +63,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
           {order.phone && <span dir="ltr">{order.phone}</span>}
         </p>
       )}
+      {origin && <ReadyQr orderId={order.id} origin={origin} />}
     </main>
   )
 }

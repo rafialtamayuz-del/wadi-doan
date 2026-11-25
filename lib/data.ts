@@ -109,6 +109,7 @@ function toComplaint(r: Row): Complaint {
   return {
     id: r.id,
     createdAt: r.created_at,
+    type: r.type === 'suggestion' ? 'suggestion' : 'complaint',
     orderNumber: r.order_number ?? undefined,
     name: r.name,
     phone: r.phone,
@@ -120,6 +121,7 @@ function toComplaint(r: Row): Complaint {
 
 function complaintToRow(c: Partial<Complaint>): Row {
   const r: Row = {}
+  if (c.type !== undefined) r.type = c.type
   if (c.orderNumber !== undefined) r.order_number = c.orderNumber
   if (c.name !== undefined) r.name = c.name
   if (c.phone !== undefined) r.phone = c.phone
@@ -137,6 +139,7 @@ function toPurchase(r: Row): Purchase {
     invoiceNo: r.invoice_no ?? '',
     date: r.invoice_date ?? '',
     amount: Number(r.amount ?? 0),
+    lines: Array.isArray(r.lines) ? r.lines : [],
     image: r.image ?? undefined,
     notes: r.notes ?? undefined,
   }
@@ -148,6 +151,7 @@ function purchaseToRow(p: Partial<Purchase>): Row {
   if (p.invoiceNo !== undefined) r.invoice_no = p.invoiceNo
   if (p.date !== undefined) r.invoice_date = p.date || null
   if (p.amount !== undefined) r.amount = p.amount
+  if (p.lines !== undefined) r.lines = p.lines
   if (p.image !== undefined) r.image = p.image || null
   if (p.notes !== undefined) r.notes = p.notes || null
   return r
@@ -169,6 +173,8 @@ function toLetter(r: Row): Letter {
     signerName: r.signer_name ?? '',
     signature: r.signature ?? '',
     isTemplate: r.is_template ?? false,
+    sentVia: r.sent_via ?? undefined,
+    sentAt: r.sent_at ?? undefined,
   }
 }
 
@@ -186,6 +192,8 @@ function letterToRow(l: Partial<Letter>): Row {
   if (l.signerName !== undefined) r.signer_name = l.signerName
   if (l.signature !== undefined) r.signature = l.signature
   if (l.isTemplate !== undefined) r.is_template = l.isTemplate
+  if (l.sentVia !== undefined) r.sent_via = l.sentVia
+  if (l.sentAt !== undefined) r.sent_at = l.sentAt || null
   return r
 }
 
@@ -457,13 +465,14 @@ function upsertSettingsItem(name: 'zones' | 'accounts', id: string | null, body:
 export async function createRecord(name: CollectionName, body: Row): Promise<unknown> {
   if (name === 'zones' || name === 'accounts') return upsertSettingsItem(name, null, body)
   if (name === 'complaints') {
-    // إرسال الشكاوى متاح للعملاء عبر دالة آمنة (بدون منحهم صلاحية على الجدول).
+    // إرسال الشكاوى/المقترحات متاح للعملاء عبر دالة آمنة (بدون منحهم صلاحية على الجدول).
     const supabase = await supabaseServer()
     const { data, error } = await supabase.rpc('create_complaint', {
       p_name: body.name,
       p_phone: body.phone,
       p_message: body.message,
       p_order_number: body.orderNumber ?? '',
+      p_type: body.type === 'suggestion' ? 'suggestion' : 'complaint',
     })
     if (error) throw new Error(error.message)
     return toComplaint(data)
@@ -596,4 +605,53 @@ export async function listComplaintsByPhone(phone: string): Promise<Complaint[]>
   const { data, error } = await supabase.rpc('track_complaints', { p_phone: phone })
   if (error) throw new Error(error.message)
   return ((data ?? []) as Row[]).map(toComplaint)
+}
+
+/* --------------------- الطاولات والتقييم ومسار «جاهز» --------------------- */
+
+/**
+ * تحديث حالة الطلب إلى «جاهز للتسليم» عبر دالة آمنة.
+ * تُستدعى عند مسح الموظف باركود بون المطبخ من متصفح الجوال (دون تسجيل دخول).
+ */
+export async function markOrderReady(id: string): Promise<Order | null> {
+  if (!UUID_RE.test(id)) return null
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.rpc('mark_order_ready', { p_id: id })
+  if (error) throw new Error(error.message)
+  return data ? toOrder(data) : null
+}
+
+/** إتمام دفع طلب طاولة: يسجّل الدفع ويغلق الطاولة تلقائيًا ويعيد الطلب المحدّث. */
+export async function payTableOrder(id: string, table: string): Promise<Order | null> {
+  if (!UUID_RE.test(id)) return null
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.rpc('pay_table_order', { p_id: id, p_table: table })
+  if (error) throw new Error(error.message)
+  return data ? toOrder(data) : null
+}
+
+/** تعيين حالة الطاولة: open (مشغولة) / closed (متاحة). */
+export async function setTableStatus(tableNo: number, status: 'open' | 'closed'): Promise<void> {
+  const supabase = await supabaseServer()
+  const { error } = await supabase.rpc('set_table_status', { p_no: tableNo, p_status: status })
+  if (error) throw new Error(error.message)
+}
+
+/** حفظ تقييم العميل للخدمة بعد إتمام الدفع. */
+export async function createRating(input: {
+  orderId?: string
+  table?: string
+  rating: number
+  comment?: string
+  customer?: string
+}): Promise<void> {
+  const supabase = await supabaseServer()
+  const { error } = await supabase.rpc('create_rating', {
+    p_order_id: input.orderId ?? null,
+    p_table: input.table ?? null,
+    p_rating: input.rating,
+    p_comment: input.comment ?? '',
+    p_customer: input.customer ?? '',
+  })
+  if (error) throw new Error(error.message)
 }
