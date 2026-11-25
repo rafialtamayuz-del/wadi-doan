@@ -254,6 +254,8 @@ export interface BusinessLocation {
   id: string
   name: string
   address: string
+  /** العنوان الوطني المختصر (4 حروف + 4 أرقام) مثل JEDA1234. */
+  shortAddress?: string
   lat: number
   lng: number
 }
@@ -365,6 +367,8 @@ export interface Settings {
   email: string
   city: string
   district: string
+  /** العنوان الوطني المختصر للمقر الرئيسي (4 حروف + 4 أرقام) مثل JEDA1234. */
+  shortAddress: string
   vatNumber: string
   crNumber: string
   hours: { label: string; time: string }[]

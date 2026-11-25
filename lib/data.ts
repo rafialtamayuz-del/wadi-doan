@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   email: 'info@wadidoan.sa',
   city: 'جدة',
   district: 'حي النسيم',
+  shortAddress: '',
   vatNumber: '310123456700003',
   crNumber: '1010123456',
   hours: [
@@ -53,8 +54,8 @@ export const DEFAULT_SETTINGS: Settings = {
     { label: 'الجمعة', time: '1:30 م - 1:00 ص' },
   ],
   locations: [
-    { id: 'branch', name: 'الفرع الرئيسي', address: 'جدة، حي النسيم، شارع الأمير سلطان', lat: 21.5422, lng: 39.173 },
-    { id: 'kitchen', name: 'المطبخ المركزي', address: 'جدة، المدينة الصناعية، طريق المدينة', lat: 21.581, lng: 39.166 },
+    { id: 'branch', name: 'الفرع الرئيسي', address: 'جدة، حي النسيم، شارع الأمير سلطان', shortAddress: '', lat: 21.5422, lng: 39.173 },
+    { id: 'kitchen', name: 'المطبخ المركزي', address: 'جدة، المدينة الصناعية، طريق المدينة', shortAddress: '', lat: 21.581, lng: 39.166 },
   ],
   gateways: { mada: true, applepay: true, visa: true, tabby: true, tamara: true, pos: true, cash: true, bank: true },
   zones: [
@@ -335,6 +336,7 @@ function settingsToRow(s: Partial<Settings>): Row {
   if (s.email !== undefined) r.email = s.email
   if (s.city !== undefined) r.city = s.city
   if (s.district !== undefined) r.district = s.district
+  if (s.shortAddress !== undefined) r.short_address = s.shortAddress
   if (s.vatNumber !== undefined) r.vat_number = s.vatNumber
   if (s.crNumber !== undefined) r.cr_number = s.crNumber
   if (s.hours !== undefined) r.hours = s.hours
@@ -360,6 +362,7 @@ function rowToSettings(r: Row): Settings {
     email: r.email ?? d.email,
     city: r.city ?? d.city,
     district: r.district ?? d.district,
+    shortAddress: r.short_address ?? d.shortAddress,
     vatNumber: r.vat_number ?? d.vatNumber,
     crNumber: r.cr_number ?? d.crNumber,
     hours: Array.isArray(r.hours) ? r.hours : d.hours,
