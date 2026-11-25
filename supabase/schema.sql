@@ -25,6 +25,7 @@ create table if not exists public.settings (
   email         text,
   city          text,
   district      text,
+  short_address text,
   vat_number    text,
   cr_number     text,
   hours         jsonb default '[]'::jsonb,
@@ -87,6 +88,8 @@ create table if not exists public.orders (
 );
 
 -- 4) فواتير المشتريات
+-- lines: تفريغ أصناف الفاتورة (كل سطر: name الصنف، qty الكمية، price السعر، group المجموعة)،
+-- والمبلغ amount يُحسب تلقائيًا من مجموع (الكمية × السعر).
 create table if not exists public.purchases (
   id           uuid primary key default gen_random_uuid(),
   created_at   timestamptz not null default now(),
@@ -94,6 +97,7 @@ create table if not exists public.purchases (
   invoice_no   text default '',
   invoice_date date,
   amount       numeric not null default 0,
+  lines        jsonb not null default '[]'::jsonb,
   image        text,
   notes        text
 );
@@ -115,6 +119,8 @@ create table if not exists public.official_documents (
   signer_role     text default '',
   signer_name     text default '',
   signature       text default '',
+  sent_via        text default '',
+  sent_at         timestamptz,
   is_template     boolean not null default false
 );
 
@@ -124,10 +130,12 @@ create table if not exists public.document_counters (
   last_number integer not null default 0
 );
 
--- 6) الشكاوى
+-- 6) الشكاوى والمقترحات
+-- type: نوع الرسالة — 'complaint' شكوى / 'suggestion' اقتراح.
 create table if not exists public.complaints (
   id           uuid primary key default gen_random_uuid(),
   created_at   timestamptz not null default now(),
+  type         text not null default 'complaint',
   order_number text,
   name         text not null,
   phone        text not null,
@@ -169,6 +177,25 @@ create table if not exists public.company_invoices (
   notes         text
 );
 
+-- 9) طاولات المطعم (نظام باركود الطاولات QR)
+-- status: 'open' مشغولة بالعميل / 'closed' مغلقة ومتاحة. تتغيّر تلقائيًا إلى 'closed' بعد نجاح الدفع الإلكتروني.
+create table if not exists public.restaurant_tables (
+  table_no   integer primary key,
+  status     text not null default 'open',
+  updated_at timestamptz not null default now()
+);
+
+-- 10) تقييمات الخدمة (تظهر للعميل مباشرة بعد إتمام الدفع الإلكتروني لطلب الطاولة)
+create table if not exists public.service_ratings (
+  id           uuid primary key default gen_random_uuid(),
+  created_at   timestamptz not null default now(),
+  order_id     uuid,
+  table_no     text,
+  customer     text,
+  rating       integer not null default 5,
+  comment      text default ''
+);
+
 -- صف إعدادات افتراضي
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
@@ -206,6 +233,9 @@ alter table public.orders add column if not exists short_address text;
 alter table public.orders add column if not exists lat           numeric;
 alter table public.orders add column if not exists lng           numeric;
 
+-- عمود العنوان الوطني المختصر للمقر الرئيسي في الإعدادات — آمن للتكرار.
+alter table public.settings add column if not exists short_address text;
+
 -- أعمدة الخطابات الرسمية الجديدة (رقم الخطاب، المرفقات، اللقب، منصب واسم صاحب الصلاحية، التوقيع) — آمنة للتكرار.
 alter table public.official_documents add column if not exists doc_number      text default '';
 alter table public.official_documents add column if not exists attachments     text default '';
@@ -213,6 +243,18 @@ alter table public.official_documents add column if not exists recipient_title t
 alter table public.official_documents add column if not exists signer_role     text default '';
 alter table public.official_documents add column if not exists signer_name     text default '';
 alter table public.official_documents add column if not exists signature       text default '';
+
+-- أعمدة حالة الإرسال والأرشفة للخطابات (تُملأ تلقائيًا عند الطباعة أو الإرسال بريد/واتساب) — آمنة للتكرار.
+alter table public.official_documents add column if not exists sent_via        text default '';
+alter table public.official_documents add column if not exists sent_at        timestamptz;
+
+-- عمود نوع الرسالة (شكوى / اقتراح) في الشكاوى — آمن للتكرار.
+alter table public.complaints add column if not exists type text not null default 'complaint';
+alter table public.complaints drop constraint if exists complaints_type_check;
+alter table public.complaints add constraint complaints_type_check check (type in ('complaint', 'suggestion'));
+
+-- عمود تفريغ أصناف فاتورة المشتريات (الصنف، الكمية، السعر، المجموعة) — آمن للتكرار.
+alter table public.purchases add column if not exists lines jsonb not null default '[]'::jsonb;
 
 -- =============== الترقيم الإلكتروني السنوي للخطابات ===============
 
@@ -322,7 +364,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   updated public.orders;
 begin
-  if not public.has_staff_role('owner', 'kitchen', 'staff') then
+  if not public.has_staff_role('owner', 'kitchen', 'kitchen_manager', 'kitchen_supervisor', 'staff', 'restaurant_manager', 'restaurant_supervisor') then
     raise exception 'لا تملك صلاحية تأكيد الدفع';
   end if;
 
@@ -345,19 +387,28 @@ begin
 end $$;
 
 
--- إرسال شكوى جديدة من عميل بدون تسجيل دخول.
+-- إرسال شكوى أو اقتراح من عميل بدون تسجيل دخول (النوع إلزامي: complaint / suggestion).
 create or replace function public.create_complaint(
   p_name text,
   p_phone text,
   p_message text,
-  p_order_number text default ''
+  p_order_number text default '',
+  p_type text default 'complaint'
 )
 returns public.complaints
 language plpgsql security definer set search_path = public as $$
 declare created public.complaints;
 begin
-  insert into public.complaints (name, phone, message, order_number, reply, status)
-  values (p_name, p_phone, p_message, nullif(p_order_number, ''), '', 'open')
+  insert into public.complaints (name, phone, message, order_number, type, reply, status)
+  values (
+    p_name,
+    p_phone,
+    p_message,
+    nullif(p_order_number, ''),
+    case when p_type = 'suggestion' then 'suggestion' else 'complaint' end,
+    '',
+    'open'
+  )
   returning * into created;
   return created;
 end $$;
@@ -406,19 +457,97 @@ begin
   end loop;
 end $$;
 
+-- تحديث حالة طلب إلى «جاهز للتسليم» (يُستدعى بمسح باركود بون المطبخ من جوال الطاقم بدون تسجيل دخول).
+create or replace function public.mark_order_ready(p_id uuid)
+returns public.orders
+language plpgsql security definer set search_path = public as $$
+declare updated public.orders;
+begin
+  update public.orders
+    set status = 'ready',
+        history = coalesce(history, '[]'::jsonb) || jsonb_build_object('status', 'ready', 'at', now())
+    where id = p_id
+      and status in ('new', 'preparing')
+    returning * into updated;
+
+  if updated.id is null then
+    select * into updated from public.orders where id = p_id;
+  end if;
+  return updated;
+end $$;
+
+-- إتمام الدفع الإلكتروني لطلب الطاولة: يحوّل الدفع إلى «مدفوع» ويغلق الطاولة ويجعلها متاحة.
+create or replace function public.pay_table_order(p_id uuid, p_table text)
+returns public.orders
+language plpgsql security definer set search_path = public as $$
+declare updated public.orders;
+begin
+  update public.orders
+    set payment = jsonb_set(coalesce(payment, '{}'::jsonb), '{status}', '"paid"'::jsonb)
+    where id = p_id
+    returning * into updated;
+
+  if p_table is not null and btrim(p_table) <> '' then
+    insert into public.restaurant_tables (table_no, status, updated_at)
+    values (btrim(p_table)::int, 'closed', now())
+    on conflict (table_no) do update set status = 'closed', updated_at = now();
+  end if;
+
+  return updated;
+end $$;
+
+-- تحديث حالة طاولة (open مشغولة / closed متاحة).
+create or replace function public.set_table_status(p_no integer, p_status text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.restaurant_tables (table_no, status, updated_at)
+  values (p_no, case when p_status = 'closed' then 'closed' else 'open' end, now())
+  on conflict (table_no) do update set status = excluded.status, updated_at = now();
+end $$;
+
+-- حفظ تقييم خدمة من العميل بعد الدفع (بدون تسجيل دخول).
+create or replace function public.create_rating(
+  p_order_id uuid,
+  p_table text,
+  p_rating integer,
+  p_comment text default '',
+  p_customer text default ''
+)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.service_ratings (order_id, table_no, rating, comment, customer)
+  values (
+    p_order_id,
+    nullif(btrim(coalesce(p_table, '')), ''),
+    least(5, greatest(1, coalesce(p_rating, 5))),
+    left(coalesce(p_comment, ''), 1000),
+    nullif(btrim(coalesce(p_customer, '')), '')
+  );
+end $$;
+
 grant execute on function public.create_order(jsonb) to anon, authenticated;
 grant execute on function public.confirm_order_payment(uuid) to authenticated;
-grant execute on function public.create_complaint(text, text, text, text) to anon, authenticated;
+grant execute on function public.create_complaint(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.track_order(bigint, text) to anon, authenticated;
 grant execute on function public.get_order(uuid) to anon, authenticated;
 grant execute on function public.track_complaints(text) to anon, authenticated;
 grant execute on function public.decrement_menu_stock(jsonb) to anon, authenticated;
+grant execute on function public.mark_order_ready(uuid) to anon, authenticated;
+grant execute on function public.pay_table_order(uuid, text) to anon, authenticated;
+grant execute on function public.set_table_status(integer, text) to anon, authenticated;
+grant execute on function public.create_rating(uuid, text, integer, text, text) to anon, authenticated;
 
 -- ================== أدوار الموظفين (RBAC) ==================
--- يُقرأ دور المستخدم من User Metadata باسم role بأحد القيم: owner / kitchen / staff.
---   owner   = صاحب المشروع (كل الصلاحيات)
---   kitchen = موظف المطبخ (شاشة التحضير KDS وتحديث حالات الطلبات)
---   staff   = موظف المطعم (إدارة الطلبات والكاشير وطباعة الفواتير)
+-- يُقرأ دور المستخدم من User Metadata باسم role بأحد القيم:
+--   owner                 = صاحب المشروع (كل الصلاحيات)
+--   restaurant_manager    = مدير مطعم (إدارة المطعم والمنيو والكاشير)
+--   restaurant_supervisor = مشرف مطعم (تشغيل المطعم والكاشير)
+--   kitchen_manager       = مدير مطبخ (إدارة المطبخ والأضاحي والذبائح)
+--   kitchen_supervisor    = مشرف مطبخ (تحضير الطلبات والأضاحي)
+--   kitchen               = موظف المطبخ (شاشة التحضير KDS وتحديث حالات الطلبات)
+--   staff                 = موظف المطعم (إدارة الطلبات والكاشير وطباعة الفواتير)
 -- الحسابات التي لا يحتوي metadata على role تُعامل «صاحب المشروع» (توافقًا مع الحسابات السابقة).
 --
 -- لتعيين الدور من لوحة Supabase: Authentication > Users > اختر المستخدم > User Metadata:
@@ -481,11 +610,11 @@ drop policy if exists orders_staff_update on public.orders;
 drop policy if exists orders_team_read on public.orders;
 drop policy if exists orders_team_update on public.orders;
 create policy orders_team_read on public.orders for select to authenticated
-  using (public.has_staff_role('owner', 'kitchen', 'staff'));
+  using (public.has_staff_role('owner', 'kitchen', 'kitchen_manager', 'kitchen_supervisor', 'staff', 'restaurant_manager', 'restaurant_supervisor'));
 
 create policy orders_team_update on public.orders for update to authenticated
-  using (public.has_staff_role('owner', 'kitchen', 'staff'))
-  with check (public.has_staff_role('owner', 'kitchen', 'staff'));
+  using (public.has_staff_role('owner', 'kitchen', 'kitchen_manager', 'kitchen_supervisor', 'staff', 'restaurant_manager', 'restaurant_supervisor'))
+  with check (public.has_staff_role('owner', 'kitchen', 'kitchen_manager', 'kitchen_supervisor', 'staff', 'restaurant_manager', 'restaurant_supervisor'));
 
 -- الشكاوى: القراءة والرد لصاحب المشروع (الإرسال للعملاء عبر دالة create_complaint).
 drop policy if exists complaints_staff_read on public.complaints;
@@ -524,4 +653,16 @@ create policy invoices_owner_all on public.company_invoices for all to authentic
 -- موظفو المطعم (staff) يمكنهم قراءة فواتير الشركات لطباعتها عند تفعيل صلاحية «طباعة فاتورة شركات».
 drop policy if exists invoices_staff_read on public.company_invoices;
 create policy invoices_staff_read on public.company_invoices for select to authenticated
-  using (public.has_staff_role('staff'));
+  using (public.has_staff_role('staff', 'restaurant_manager', 'restaurant_supervisor'));
+
+-- ================== طاولات المطعم وتقييمات الخدمة ==================
+-- الطاولات: قراءة عامة لعرض حالة الإتاحة، والتحديث يتم عبر دوال آمنة (pay_table_order / set_table_status).
+alter table public.restaurant_tables enable row level security;
+drop policy if exists tables_public_read on public.restaurant_tables;
+create policy tables_public_read on public.restaurant_tables for select to anon, authenticated using (true);
+
+-- تقييمات الخدمة: القراءة لصاحب المشروع فقط (الإضافة للعملاء عبر دالة create_rating).
+alter table public.service_ratings enable row level security;
+drop policy if exists ratings_owner_read on public.service_ratings;
+create policy ratings_owner_read on public.service_ratings for select to authenticated
+  using (public.has_staff_role('owner'));
