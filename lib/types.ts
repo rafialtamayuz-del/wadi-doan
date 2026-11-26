@@ -256,6 +256,10 @@ export interface BusinessLocation {
   address: string
   /** العنوان الوطني المختصر (4 حروف + 4 أرقام) مثل JEDA1234. */
   shortAddress?: string
+  city?: string
+  district?: string
+  street?: string
+  postalCode?: string
   lat: number
   lng: number
 }

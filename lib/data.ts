@@ -54,8 +54,8 @@ export const DEFAULT_SETTINGS: Settings = {
     { label: 'الجمعة', time: '1:30 م - 1:00 ص' },
   ],
   locations: [
-    { id: 'branch', name: 'الفرع الرئيسي', address: 'جدة، حي النسيم، شارع الأمير سلطان', shortAddress: '', lat: 21.5422, lng: 39.173 },
-    { id: 'kitchen', name: 'المطبخ المركزي', address: 'جدة، المدينة الصناعية، طريق المدينة', shortAddress: '', lat: 21.581, lng: 39.166 },
+    { id: 'branch', name: 'الفرع الرئيسي', address: 'جدة، حي النسيم، شارع الأمير سلطان', shortAddress: '', city: 'جدة', district: 'حي النسيم', street: 'شارع الأمير سلطان', postalCode: '', lat: 21.5422, lng: 39.173 },
+    { id: 'kitchen', name: 'المطبخ المركزي', address: 'جدة، المدينة الصناعية، طريق المدينة', shortAddress: '', city: 'جدة', district: 'المدينة الصناعية', street: 'طريق المدينة', postalCode: '', lat: 21.581, lng: 39.166 },
   ],
   gateways: { mada: true, applepay: true, visa: true, tabby: true, tamara: true, pos: true, cash: true, bank: true },
   zones: [
