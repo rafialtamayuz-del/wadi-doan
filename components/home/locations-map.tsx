@@ -54,7 +54,16 @@ export function LocationsMap({ locations }: { locations: BusinessLocation[] }) {
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">{active.address}</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-muted-foreground">{active.address}</p>
+          {([active.city, active.district, active.street].filter(Boolean).length > 0 || active.postalCode) && (
+            <p className="text-xs text-muted-foreground">
+              {[active.district, active.street].filter(Boolean).join('، ')}
+              {active.city ? `، ${active.city}` : ''}
+              {active.postalCode ? ` — الرمز البريدي: ${active.postalCode}` : ''}
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {active.shortAddress && (
             <button

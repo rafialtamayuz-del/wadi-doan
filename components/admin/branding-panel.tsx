@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Check, Copy, Loader2, MapPin, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, Field, Input, Notice, Textarea } from '@/components/ui/fields'
+import { LocationMapPicker } from '@/components/admin/location-map-picker'
 import { apiSend, fetcher, fileToDataUrl, useSettings } from '@/lib/client'
 import type { Settings } from '@/lib/types'
 
@@ -69,24 +70,34 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
     setExtracting(id)
     setMsg(null)
     try {
-      const geo = await fetcher<{ city: string; district: string; street: string; formatted: string; lat: number; lng: number }>(
-        `/api/geocode?short=${short}`,
-      )
+      const geo = await fetcher<{
+        city: string
+        district: string
+        street: string
+        postalCode: string
+        formatted: string
+        lat: number
+        lng: number
+      }>(`/api/resolve-national-address?short=${short}`)
       const composed = [geo.street, geo.district, geo.city].map((v) => v?.trim()).filter(Boolean).join('، ')
-      set(
-        'locations',
-        s.locations.map((x) =>
+      setS((p) => ({
+        ...p,
+        locations: p.locations.map((x) =>
           x.id === id
             ? {
                 ...x,
                 shortAddress: short,
+                city: geo.city ?? x.city,
+                district: geo.district ?? x.district,
+                street: geo.street ?? x.street,
+                postalCode: geo.postalCode ?? x.postalCode,
                 address: x.address.trim() ? x.address : geo.formatted || composed,
                 lat: geo.lat ?? x.lat,
                 lng: geo.lng ?? x.lng,
               }
             : x,
         ),
-      )
+      }))
       setMsg({ ok: true, text: `تم استخراج إحداثيات «${short}» وربطها بالخريطة.` })
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
@@ -228,9 +239,8 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
           </p>
         </div>
         {s.locations.map((loc, i) => {
-          const upd = (patch: Partial<typeof loc>) => set('locations', s.locations.map((x, j) => (j === i ? { ...x, ...patch } : x)))
-          const valid = Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && (loc.lat !== 0 || loc.lng !== 0)
-          const embed = `https://maps.google.com/maps?q=${loc.lat},${loc.lng}&hl=ar&z=16&output=embed`
+          const upd = (patch: Partial<typeof loc>) =>
+            setS((p) => ({ ...p, locations: p.locations.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
           return (
             <div key={loc.id} className="flex flex-col gap-3 rounded-lg bg-muted/50 p-3">
               <div className="grid gap-2 sm:grid-cols-4">
@@ -247,6 +257,20 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
                   <Input dir="ltr" type="number" step="any" value={loc.lng} onChange={(e) => upd({ lng: Number(e.target.value) })} />
                 </Field>
               </div>
+              <div className="grid gap-2 sm:grid-cols-4">
+                <Field label="المدينة">
+                  <Input value={loc.city ?? ''} onChange={(e) => upd({ city: e.target.value })} />
+                </Field>
+                <Field label="الحي">
+                  <Input value={loc.district ?? ''} onChange={(e) => upd({ district: e.target.value })} />
+                </Field>
+                <Field label="الشارع">
+                  <Input value={loc.street ?? ''} onChange={(e) => upd({ street: e.target.value })} />
+                </Field>
+                <Field label="الرمز البريدي">
+                  <Input dir="ltr" value={loc.postalCode ?? ''} onChange={(e) => upd({ postalCode: e.target.value })} />
+                </Field>
+              </div>
               <div className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium">العنوان الوطني المختصر</span>
                 <div className="flex flex-wrap gap-2">
@@ -255,7 +279,14 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
                     className="min-w-40 flex-1"
                     placeholder="JEDA1234"
                     value={loc.shortAddress ?? ''}
-                    onChange={(e) => upd({ shortAddress: normalizeShort(e.target.value) })}
+                    onChange={(e) => {
+                      const val = normalizeShort(e.target.value)
+                      upd({ shortAddress: val })
+                      // استخراج تلقائي فور اكتمال الصيغة (4 حروف + 4 أرقام).
+                      if (/^[A-Z]{4}\d{4}$/.test(val) && extracting !== loc.id) {
+                        void extractLocation(loc.id, val)
+                      }
+                    }}
                   />
                   <Button
                     type="button"
@@ -308,17 +339,11 @@ function BrandingForm({ initial, onSaved }: { initial: Settings; onSaved: (s: Se
                 </Button>
               </div>
               <div className="overflow-hidden rounded-lg border bg-background">
-                {valid ? (
-                  <iframe
-                    key={`${loc.lat},${loc.lng}`}
-                    title={`خريطة ${loc.name || 'الموقع'}`}
-                    src={embed}
-                    className="aspect-[16/9] w-full"
-                    loading="lazy"
-                  />
-                ) : (
-                  <p className="p-4 text-center text-sm text-muted-foreground">أدخل الإحداثيات أو الصق رابط الموقع لعرض الخريطة.</p>
-                )}
+                <LocationMapPicker
+                  lat={loc.lat}
+                  lng={loc.lng}
+                  onPick={(lat, lng) => upd({ lat, lng })}
+                />
               </div>
             </div>
           )

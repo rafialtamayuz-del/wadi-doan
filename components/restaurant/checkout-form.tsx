@@ -97,7 +97,7 @@ export function CheckoutForm({
     setGeoLoading(true)
     setGeoError('')
     try {
-      const res = await fetch(`/api/geocode?short=${encodeURIComponent(short)}`)
+      const res = await fetch(`/api/resolve-national-address?short=${encodeURIComponent(short)}`)
       const data = (await res.json().catch(() => ({}))) as Partial<GeoResult> & { error?: string; shortAddressFor?: string }
       if (!res.ok) throw new Error(data.error || 'تعذّر تحديد الموقع')
       setGeo({
