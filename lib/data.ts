@@ -1,4 +1,5 @@
 import { supabaseServer } from './supabase/server'
+import { recordOrderSale } from '@/app/lib/accountingEngine'
 import {
   type CollectionName,
   type CompanyInvoice,
@@ -288,6 +289,8 @@ function toOrder(r: Row): Order {
     status: r.status,
     history: Array.isArray(r.history) ? r.history : [],
     pickupCode: r.pickup_code ?? undefined,
+    deliveredAt: r.delivered_at ?? undefined,
+    ratingSent: Boolean(r.rating_sent),
   }
 }
 
@@ -319,6 +322,8 @@ function orderToRow(o: NewOrder): Row {
     payment: o.payment,
     status: o.status,
     history: o.history,
+    delivered_at: o.deliveredAt ?? null,
+    rating_sent: o.ratingSent ?? false,
   }
 }
 
@@ -563,6 +568,7 @@ export async function updateOrder(
   if (readError) throw new Error(readError.message)
   if (!current) return null
   const order = toOrder(current)
+  const wasPaid = order.payment.status === 'paid'
 
   // تأكيد الدفع يتم عبر دالة آمنة تولّد كود الاستلام للطلبات الإلكترونية، ثم نحفظ بقية التعديلات.
   if (patch.paymentStatus === 'paid') {
@@ -577,13 +583,22 @@ export async function updateOrder(
   if (patch.status && patch.status !== order.status) {
     order.status = patch.status
     order.history = [...order.history, { status: patch.status, at: new Date().toISOString() }]
+    // عند تسليم الطلب يُسجَّل وقت التسليم لتوليد رابط التقييم تلقائيًا.
+    if (patch.status === 'completed' && !order.deliveredAt) {
+      order.deliveredAt = new Date().toISOString()
+    }
   }
   if (patch.priority === 'normal' || patch.priority === 'urgent') order.priority = patch.priority
   const row = orderToRow(order)
   row.status = order.status
   const { data, error } = await supabase.from('orders').update(row).eq('id', id).select('*').single()
   if (error) throw new Error(error.message)
-  return toOrder(data)
+  const updated = toOrder(data)
+  // عند تأكيد الدفع (من غير مدفوع إلى مدفوع) نسجّل معاملة المبيعات في دفتر الأستاذ.
+  if (!wasPaid && updated.payment.status === 'paid') {
+    await recordOrderSale(updated).catch(() => {})
+  }
+  return updated
 }
 
 export async function decrementMenuStock(lines: { itemId: string; qty: number }[]): Promise<void> {
@@ -630,7 +645,13 @@ export async function payTableOrder(id: string, table: string): Promise<Order | 
   const supabase = await supabaseServer()
   const { data, error } = await supabase.rpc('pay_table_order', { p_id: id, p_table: table })
   if (error) throw new Error(error.message)
-  return data ? toOrder(data) : null
+  if (!data) return null
+  const paid = toOrder(data)
+  // الدفع الإلكتروني لطلب الطاولة: نسجّل معاملة المبيعات في دفتر الأستاذ.
+  if (paid.payment.status === 'paid') {
+    await recordOrderSale(paid).catch(() => {})
+  }
+  return paid
 }
 
 /** تعيين حالة الطاولة: open (مشغولة) / closed (متاحة). */
@@ -638,6 +659,18 @@ export async function setTableStatus(tableNo: number, status: 'open' | 'closed')
   const supabase = await supabaseServer()
   const { error } = await supabase.rpc('set_table_status', { p_no: tableNo, p_status: status })
   if (error) throw new Error(error.message)
+}
+
+/** جلب حالات جميع الطاولات المسجّلة (لمعرفة الطاولات المشغولة/المتاحة في لوحة الإدارة). */
+export async function listTableStatuses(): Promise<{ tableNo: number; status: 'open' | 'closed'; updatedAt: string }[]> {
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.rpc('get_table_statuses')
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as { table_no: number; status: 'open' | 'closed'; updated_at: string }[]).map((r) => ({
+    tableNo: r.table_no,
+    status: r.status,
+    updatedAt: r.updated_at,
+  }))
 }
 
 /** حفظ تقييم العميل للخدمة بعد إتمام الدفع. */
@@ -657,4 +690,30 @@ export async function createRating(input: {
     p_customer: input.customer ?? '',
   })
   if (error) throw new Error(error.message)
+}
+
+/** جلب تقييمات العملاء لعرضها في تقارير صاحب المشروع. */
+export async function listRatings(): Promise<
+  { id: string; createdAt: string; orderId?: string; table?: string; customer?: string; rating: number; comment: string }[]
+> {
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.rpc('get_ratings')
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as {
+    id: string
+    created_at: string
+    order_id: string | null
+    table_no: string | null
+    customer: string | null
+    rating: number
+    comment: string | null
+  }[]).map((r) => ({
+    id: r.id,
+    createdAt: r.created_at,
+    orderId: r.order_id ?? undefined,
+    table: r.table_no ?? undefined,
+    customer: r.customer ?? undefined,
+    rating: r.rating,
+    comment: r.comment ?? '',
+  }))
 }
