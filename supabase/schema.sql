@@ -196,6 +196,27 @@ create table if not exists public.service_ratings (
   comment      text default ''
 );
 
+-- 11) سجل المعاملات المالية (محاسبة بسيطة للمدير المالي الذكي AI CFO)
+-- type: sale (مبيعات) / purchase (مشتريات) / expense (مصروفات)
+-- source: order (طلب مطعم/مطبخ) / invoice (فاتورة شركة) / manual (يدوي)
+-- amount: المبلغ شامل الضريبة، vat: ضريبة القيمة المضافة، net: المبلغ قبل الضريبة
+create table if not exists public.transactions (
+  id          uuid primary key default gen_random_uuid(),
+  created_at  timestamptz not null default now(),
+  type        text not null default 'sale',
+  source      text not null default 'order',
+  source_id   text,
+  amount      numeric(12,2) not null default 0,
+  vat         numeric(12,2) not null default 0,
+  net         numeric(12,2) not null default 0,
+  description text default '',
+  metadata    jsonb not null default '{}'::jsonb
+);
+
+alter table public.transactions enable row level security;
+drop policy if exists transactions_auth_all on public.transactions;
+create policy transactions_auth_all on public.transactions for all to authenticated using (true) with check (true);
+
 -- صف إعدادات افتراضي
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
@@ -255,6 +276,28 @@ alter table public.complaints add constraint complaints_type_check check (type i
 
 -- عمود تفريغ أصناف فاتورة المشتريات (الصنف، الكمية، السعر، المجموعة) — آمن للتكرار.
 alter table public.purchases add column if not exists lines jsonb not null default '[]'::jsonb;
+
+-- أعمدة دورة الطلب والتقييم: وقت تسليم الطلب وتوليد رابط التقييم.
+-- delivered_at يُعرَّب تلقائيًا عند تحويل حالة الطلب إلى «تم التسليم».
+-- rating_sent يمنع إرسال رابط التقييم أكثر من مرة للعميل.
+alter table public.orders add column if not exists delivered_at timestamptz;
+alter table public.orders add column if not exists rating_sent  boolean not null default false;
+
+-- دالة مساعدة لجلب حالات جميع الطاولات (تُستخدم في لوحة إدارة الطاولات).
+create or replace function public.get_table_statuses()
+returns setof public.restaurant_tables
+language sql stable security definer set search_path = public as $$
+  select * from public.restaurant_tables order by table_no;
+$$;
+grant execute on function public.get_table_statuses() to anon, authenticated;
+
+-- دالة مساعدة لجلب تقييمات العملاء (تظهر في تقارير صاحب المشروع).
+create or replace function public.get_ratings()
+returns setof public.service_ratings
+language sql stable security definer set search_path = public as $$
+  select * from public.service_ratings order by created_at desc;
+$$;
+grant execute on function public.get_ratings() to anon, authenticated;
 
 -- =============== الترقيم الإلكتروني السنوي للخطابات ===============
 
