@@ -1,3 +1,4 @@
+import { recordOrderSale } from '@/app/lib/accountingEngine'
 import { decrementMenuStock, getMenuItems, getSettings, getZones, insertOrder, listOrders, type NewOrder } from '@/lib/data'
 import { getCurrentUser } from '@/lib/supabase/server'
 import { effectivePrice, round2, vatFromInclusive } from '@/lib/format'
@@ -159,6 +160,10 @@ export async function POST(req: Request) {
     }
 
     const created = await insertOrder(order)
+    // تسجيل معاملة المبيعات في دفتر الأستاذ عند الدفع الإلكتروني المباشر.
+    if (created.payment.status === 'paid') {
+      await recordOrderSale(created).catch(() => {})
+    }
     await decrementMenuStock(lines)
     return Response.json(created, { status: 201 })
   } catch (e) {

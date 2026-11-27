@@ -1,93 +1,135 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabaseServer } from '@/lib/supabase/server'
+import type { CompanyInvoice, Order } from '@/lib/types'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+/** أنواع المعاملات المالية المسجّلة في دفتر الأستاذ. */
+export type TransactionType = 'sale' | 'purchase' | 'expense'
+/** مصدر المعاملة: طلب مطعم/مطبخ، فاتورة شركة، أو إدخال يدوي. */
+export type TransactionSource = 'order' | 'invoice' | 'manual'
 
-interface OrderItem {
-  menuItemId: string;
-  quantity: number;
-  priceWithoutTax: number;
+export interface SaleTransactionInput {
+  /** المصدر: طلب (order) أو فاتورة شركة (invoice). */
+  source: TransactionSource
+  /** معرّف المصدر (رقم الطلب أو معرّف الفاتورة). */
+  sourceId: string
+  /** المبلغ الإجمالي شامل الضريبة. */
+  amount: number
+  /** ضريبة القيمة المضافة. */
+  vat: number
+  /** المبلغ قبل الضريبة (يُحسب تلقائيًا إن لم يُوفَّر. */
+  net?: number
+  /** وصف مختصر للمعاملة. */
+  description?: string
+  /** بيانات إضافية (نوع الطلب، رقم الطاولة، اسم العميل، إلخ). */
+  metadata?: Record<string, unknown>
 }
 
-export async function recordSaleTransaction(params: {
-  invoiceId: string;
-  department: 'RESTAURANT' | 'BANQUET';
-  paymentMethod: 'CASH' | 'MADA' | 'DELIVERY_APP';
-  items: OrderItem[];
-  depositUsed?: number;
-}) {
-  const subtotal = params.items.reduce((sum, item) => sum + item.priceWithoutTax * item.quantity, 0);
-  const vatAmount = Number((subtotal * 0.15).toFixed(2));
-  const totalWithTax = Number((subtotal + vatAmount).toFixed(2));
+export interface TransactionRow {
+  id: string
+  createdAt: string
+  type: TransactionType
+  source: TransactionSource
+  sourceId: string | null
+  amount: number
+  vat: number
+  net: number
+  description: string | null
+  metadata: Record<string, unknown>
+}
 
-  const debitAccount =
-    params.paymentMethod === 'CASH' ? '1101' :
-    params.paymentMethod === 'MADA' ? '1102' : '1103';
-
-  const revenueAccount = params.department === 'RESTAURANT' ? '4101' : '4102';
-
-  const { data: entry, error } = await supabase
-    .from('journal_entries')
+/**
+ * تسجيل معاملة مبيعات في دفتر الأستاذ.
+ * تُستخدم هذه الدالة عند إنشاء طلب مدفوع أو تأكيد دفع طلب أو حفظ فاتورة شركة.
+ */
+export async function recordSaleTransaction(input: SaleTransactionInput): Promise<TransactionRow> {
+  const supabase = await supabaseServer()
+  const net = input.net ?? Math.max(0, input.amount - input.vat)
+  const { data, error } = await supabase
+    .from('transactions')
     .insert({
-      reference_type: 'INVOICE',
-      reference_id: params.invoiceId,
-      description: `إثبات مبيعات فاتورة رقم ${params.invoiceId}`,
+      type: 'sale',
+      source: input.source,
+      source_id: input.sourceId,
+      amount: input.amount,
+      vat: input.vat,
+      net,
+      description: input.description ?? '',
+      metadata: input.metadata ?? {},
     })
-    .select()
-    .single();
+    .select('*')
+    .single()
+  if (error) throw new Error(error.message)
+  return toTransaction(data)
+}
 
-  if (error) throw new Error(`فشل إنشاء القيد: ${error.message}`);
+/** تسجيل معاملة مبيعات من طلب مطعم/مطبخ. */
+export async function recordOrderSale(order: Pick<Order, 'id' | 'number' | 'total' | 'vat' | 'type' | 'table' | 'customerName'>): Promise<TransactionRow> {
+  return recordSaleTransaction({
+    source: 'order',
+    sourceId: order.id,
+    amount: order.total,
+    vat: order.vat,
+    description: `طلب #${order.number}`,
+    metadata: {
+      orderNumber: order.number, type: order.type, table: order.table ?? null, customerName: order.customerName ?? null },
+  })
+}
 
-  const journalLines = [];
+/** تسجيل معاملة مبيعات من فاتورة شركة (B2B). */
+export async function recordInvoiceSale(invoice: Pick<CompanyInvoice, 'id' | 'number' | 'buyerName'>, total: number, vat: number): Promise<TransactionRow> {
+  return recordSaleTransaction({
+    source: 'invoice',
+    sourceId: invoice.id,
+    amount: total,
+    vat,
+    description: `فاتورة شركة ${invoice.number} - ${invoice.buyerName}`,
+    metadata: { invoiceNumber: invoice.number, buyerName: invoice.buyerName },
+  })
+}
 
-  const deposit = params.depositUsed || 0;
-  const remainingDue = Number((totalWithTax - deposit).toFixed(2));
+/** جلب جميع المعاملات المالية (للعرض في تقارير المدير المالي الذكي). */
+export async function listTransactions(): Promise<TransactionRow[]> {
+  const supabase = await supabaseServer()
+  const { data, error } = await supabase.from('transactions').select('*').order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Record<string, unknown>[]).map(toTransaction)
+}
 
-  if (deposit > 0) {
-    journalLines.push({ entry_id: entry.id, account_code: '2103', debit: deposit, credit: 0 });
+/** ملخص مالي سريع من المعاملات لإطعام نموذج Gemini في المدير المالي الذكي. */
+export async function getFinancialSummary(): Promise<{
+  totalRevenue: number
+  totalVat: number
+  totalNet: number
+  count: number
+  bySource: Record<string, { count: number; amount: number }>
+}> {
+  const rows = await listTransactions()
+  const bySource: Record<string, { count: number; amount: number }> = {}
+  let totalRevenue = 0
+  let totalVat = 0
+  let totalNet = 0
+  for (const r of rows) {
+    totalRevenue += r.amount
+    totalVat += r.vat
+    totalNet += r.net
+    const key = r.source
+    if (!bySource[key]) bySource[key] = { count: 0, amount: 0 }
+    bySource[key].count += 1
+    bySource[key].amount += r.amount
   }
-  if (remainingDue > 0) {
-    journalLines.push({ entry_id: entry.id, account_code: debitAccount, debit: remainingDue, credit: 0 });
+  return { totalRevenue, totalVat, totalNet, count: rows.length, bySource }
+}
+
+function toTransaction(r: Record<string, unknown>): TransactionRow {
+  return {
+    id: String(r.id),
+    createdAt: String(r.created_at),
+    type: (r.type as TransactionType) ?? 'sale',
+    source: (r.source as TransactionSource) ?? 'order',
+    sourceId: r.source_id ? String(r.source_id) : null,
+    amount: Number(r.amount),
+    vat: Number(r.vat),
+    net: Number(r.net),
+    description: r.description ? String(r.description) : null,
+    metadata: (r.metadata as Record<string, unknown>) ?? {},
   }
-
-  journalLines.push(
-    { entry_id: entry.id, account_code: revenueAccount, debit: 0, credit: subtotal },
-    { entry_id: entry.id, account_code: '2102', debit: 0, credit: vatAmount }
-  );
-
-  await supabase.from('journal_lines').insert(journalLines);
-
-  let totalCostOfGoods = 0;
-
-  for (const item of params.items) {
-    const { data: recipes } = await supabase
-      .from('menu_recipes')
-      .select('quantity_required, waste_factor, inventory_items(id, unit_cost, current_stock)')
-      .eq('menu_item_id', item.menuItemId);
-
-    if (recipes) {
-      for (const r of recipes as any) {
-        const consumedQty = item.quantity * r.quantity_required * (1 + r.waste_factor);
-        const itemCost = consumedQty * r.inventory_items.unit_cost;
-        totalCostOfGoods += itemCost;
-
-        await supabase
-          .from('inventory_items')
-          .update({ current_stock: r.inventory_items.current_stock - consumedQty })
-          .eq('id', r.inventory_items.id);
-      }
-    }
-  }
-
-  if (totalCostOfGoods > 0) {
-    const roundedCost = Number(totalCostOfGoods.toFixed(2));
-    await supabase.from('journal_lines').insert([
-      { entry_id: entry.id, account_code: '5101', debit: roundedCost, credit: 0 },
-      { entry_id: entry.id, account_code: '1201', debit: 0, credit: roundedCost },
-    ]);
-  }
-
-  return { success: true, entryId: entry.id, totalWithTax, vatAmount, cost: totalCostOfGoods };
 }

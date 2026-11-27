@@ -1,4 +1,4 @@
-import { createRating, markOrderReady, payTableOrder, setTableStatus } from '@/lib/data'
+import { createRating, listRatings, listTableStatuses, markOrderReady, payTableOrder, setTableStatus } from '@/lib/data'
 
 /**
  * مسار إجراءات موحّد للعمليات التي لا تحتاج تسجيل دخول:
@@ -62,6 +62,14 @@ export async function POST(req: Request) {
         const order = await markOrderReady(id)
         if (!order) return Response.json({ error: 'الطلب غير موجود' }, { status: 404 })
         return Response.json(order)
+      }
+      case 'get-tables': {
+        const tables = await listTableStatuses()
+        return Response.json(tables)
+      }
+      case 'get-ratings': {
+        const ratings = await listRatings()
+        return Response.json(ratings)
       }
       default:
         return Response.json({ error: 'إجراء غير معروف' }, { status: 400 })

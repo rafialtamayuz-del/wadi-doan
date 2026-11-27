@@ -1,71 +1,108 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from '@google/genai';
+import { getFinancialSummary, listTransactions } from '@/app/lib/accountingEngine'
+import { getSettings } from '@/lib/data'
+import { getCurrentUser } from '@/lib/supabase/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
+/**
+ * المدير المالي الذكي (AI CFO): يحلّل المعاملات المالية المسجّلة عبر محرك المحاسبة
+ * ويولّد رؤى وتوصيات باستخدام Gemini API. يتطلب تسجيل دخول صاحب المشروع.
+ *
+ * POST /api/ai-cfo
+ * body: { question?: string }  — سؤال اختياري من صاحب المشروع؛ إن لم يُوفَّر يُقدّم تحليلًا عامًا.
+ */
 export async function POST(req: Request) {
+  const user = await getCurrentUser()
+  if (!user) return Response.json({ error: 'يجب تسجيل الدخول' }, { status: 401 })
+
+  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  if (!apiKey) {
+    return Response.json(
+      { error: 'مفتاح Gemini API غير مُعَّد. أضف GEMINI_API_KEY إلى متغيرات البيئة.', localError: true },
+      { status: 503 },
+    )
+  }
+
+  let question = ''
   try {
-    const { question } = await req.json();
+    const body = (await req.json()) as { question?: string }
+    question = String(body.question ?? '').trim().slice(0, 1000)
+  } catch {
+    question = ''
+  }
 
-    const { data: lines } = await supabase.from('journal_lines').select('account_code, debit, credit');
-    const { data: lowStock } = await supabase
-      .from('inventory_items')
-      .select('name_ar, current_stock, unit, min_threshold');
+  try {
+    const [summary, transactions, settings] = await Promise.all([
+      getFinancialSummary(),
+      listTransactions(),
+      getSettings(),
+    ])
 
-    let revenue = 0;
-    let cogs = 0;
-    let labor = 0;
-    let vatPayable = 0;
+    const recent = transactions.slice(0, 30).map((t) => ({
+      date: t.createdAt.slice(0, 10),
+      source: t.source,
+      amount: t.amount,
+      vat: t.vat,
+      description: t.description,
+    }))
 
-    lines?.forEach((l) => {
-      if (l.account_code.startsWith('4')) revenue += Number(l.credit) - Number(l.debit);
-      if (l.account_code === '5101') cogs += Number(l.debit) - Number(l.credit);
-      if (l.account_code === '5201') labor += Number(l.debit) - Number(l.credit);
-      if (l.account_code === '2102') vatPayable += Number(l.credit) - Number(l.debit);
-    });
+    const systemPrompt =
+      `أنت المدير المالي الذكي (AI CFO) لمطعم "${settings.name}" في ${settings.city}. ` +
+      `تحلّل المعاملات المالية وتقدّم توصيات عملية موجزة باللغة العربية. ` +
+      `لا تختلق أرقامًا؛ استخدم فقط البيانات المُقدَّمة. اجعل الإجابة منظمة بعناوين قصيرة ونقاط واضحة.`
 
-    const primeCost = cogs + labor;
-    const primeCostRatio = revenue > 0 ? ((primeCost / revenue) * 100).toFixed(1) : '0';
+    const userPrompt = [
+      question ? `سؤال صاحب المشروع: ${question}` : 'قدّم تحليلًا ماليًا عامًا وأهم التوصيات.',
+      '',
+      'البيانات المالية:',
+      `- إجمالي الإيرادات (شامل الضريبة): ${summary.totalRevenue.toFixed(2)} ر.س`,
+      `- إجمالي ضريبة القيمة المضافة: ${summary.totalVat.toFixed(2)} ر.س`,
+      `- صافي الإيرادات قبل الضريبة: ${summary.totalNet.toFixed(2)} ر.س`,
+      `- عدد المعاملات: ${summary.count}`,
+      '- التوزيع حسب المصدر:',
+      ...Object.entries(summary.bySource).map(([k, v]) => `  • ${k}: ${v.count} معاملة بمبلغ ${v.amount.toFixed(2)} ر.س`),
+      '',
+      'آخر المعاملات:',
+      JSON.stringify(recent, null, 2),
+    ].join('\n')
 
-    const financialContext = `
-      بيانات مؤسسة مطاعم ومطابخ وادي دوعن الحالية (بالريال السعودي):
-      - إجمالي الإيرادات (بدون ضريبة): ${revenue.toFixed(2)} ريال
-      - تكلفة المواد الغذائية المستهلكة (COGS): ${cogs.toFixed(2)} ريال
-      - تكلفة الرواتب والأجور: ${labor.toFixed(2)} ريال
-      - نسبة التكلفة الأساسية (Prime Cost %): ${primeCostRatio}% (الحد الآمن للمطاعم 55%-60%)
-      - ضريبة القيمة المضافة المستحقة لهيئة الزكاة (15%): ${vatPayable.toFixed(2)} ريال
-      - حالة المخزون: ${JSON.stringify(lowStock)}
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `أنت المدير المالي الذكي (AI CFO) لمؤسسة مطاعم ومطابخ وادي دوعن في السعودية.
-              اعتمد على البيانات المالية الدقيقة التالية للإجابة على سؤال المالك وتقديم توصيات عملية لضبط التكاليف والهدر والالتزام الضريبي:
-              ${financialContext}
-              
-              سؤال صاحب المشروع: ${question}`,
-            },
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
           ],
-        },
-      ],
-    });
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+        }),
+      },
+    )
 
-    return NextResponse.json({
-      answer: response.text,
-      metrics: { revenue, cogs, labor, primeCostRatio, vatPayable },
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return Response.json({ error: `فشل استدعاء Gemini: ${res.status}`, detail: text.slice(0, 500) }, { status: 502 })
+    }
+
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[]
+      error?: { message?: string }
+    }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) {
+      return Response.json({ error: data.error?.message ?? 'لم يُرجع Gemini ردًا نصيًا' }, { status: 502 })
+    }
+
+    return Response.json({
+      answer: text,
+      summary: {
+        totalRevenue: summary.totalRevenue,
+        totalVat: summary.totalVat,
+        totalNet: summary.totalNet,
+        count: summary.count,
+        bySource: summary.bySource,
+      },
+    })
+  } catch (e) {
+    return Response.json({ error: (e as Error).message }, { status: 500 })
   }
 }

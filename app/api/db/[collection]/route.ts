@@ -1,6 +1,8 @@
+import { recordInvoiceSale } from '@/app/lib/accountingEngine'
 import { createRecord, listRecords } from '@/lib/data'
 import { getCurrentUser } from '@/lib/supabase/server'
-import { isCollection, type CollectionName } from '@/lib/types'
+import { round2, VAT_RATE } from '@/lib/format'
+import { isCollection, type CollectionName, type InvoiceLine } from '@/lib/types'
 
 type Ctx = { params: Promise<{ collection: string }> }
 
@@ -53,6 +55,17 @@ export async function POST(req: Request, { params }: Ctx) {
     if (!user) return Response.json({ error: 'يجب تسجيل الدخول' }, { status: 401 })
     const { id: _id, createdAt: _c, ...rest } = body
     const record = await createRecord(collection, rest)
+
+    // فاتورة شركة: نحسب الإجمالي والضريبة من البنود ونسجّل معاملة المبيعات في دفتر الأستاذ.
+    if (collection === 'invoices') {
+      const inv = record as { id: string; number: string; buyerName: string; lines: InvoiceLine[] }
+      const lines = Array.isArray(inv.lines) ? inv.lines : []
+      const subtotal = round2(lines.reduce((s, l) => s + l.qty * l.unitPrice, 0))
+      const vat = round2(subtotal * VAT_RATE)
+      const total = round2(subtotal + vat)
+      await recordInvoiceSale(inv, total, vat).catch(() => {})
+    }
+
     return Response.json(record, { status: 201 })
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 500 })
